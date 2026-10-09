@@ -44,6 +44,27 @@ Import reads either our export or TUH's original tracker. It always shows a prev
 
 Patient-name columns are ignored, so only the MRN is kept. Columns missing from a sheet are left alone. With no Status column, the row's fill colour is used; that colour key is a guess until we see the real tracker (`FILL_TO_STATUS` in `equipment/spreadsheet.py`). The full design and the changeover plan are in the hackathon folder: `docs/integration-design.md`.
 
+### TUH's register
+
+Tested against the transcribed Wheelchair Asset Register (Asset Register and Cushion Register tabs, 74 items). The importer understands its layout:
+
+| Register | In the app |
+|---|---|
+| Asset No., Type, Size (WxDxH), Serial No., HC21 No., DML No., Max Wgt, Comments, Last Service date, Purchased in, Replacement cover | Same-named fields (Type = make and model). `SN:`/`DML` prefixes and `N/A` are cleaned up |
+| AT+ / AT- (column A) | On AssetTrak yes/no (*assumed meaning*) |
+| Status `OWWP` | On loan (*assumed: on ward with patient*). No patient or therapist is recorded, so these open as loans that need an owner, dated from "Updated" |
+| `STL …` | On loan, short-term (went home) |
+| `OT Dept`, `Ready for use`, a storeroom | Available |
+| `Workshop`, `WASH` | Awaiting repair (the brief has no "being cleaned" status) |
+| `Missing …`, `Awaiting reimbursement` | Missing |
+| Anything else (`With D50`, `?`, `Patrick to update Sarah`) | Kept in the notes; item flagged for someone to check |
+| Grey "For the provision of clients in …" rows | Start a pool (e.g. "Burkitt / ARHC", "WSU / ASU only (own funding)") |
+| Yellow Asset No. / red row | Flagged / missing |
+| Updated | When the item's location was last confirmed |
+| Patient Name | Ignored, never stored |
+
+The import also warns about identifiers shared by two items (D11 and D12 have the same HC21 and DML numbers in the register). The export uses the register's own headings first, so staff recognise it.
+
 ## Synergy (design only)
 
 `equipment/synergy.py` is the seam where Synergy (TUH's EPR) would connect. It isn't connected to anything:
@@ -78,10 +99,28 @@ Free tier limits to plan around ([Render docs](https://render.com/docs/free)):
 
 ## Email (Gmail)
 
-Locally, emails print to the console. To send through Gmail, turn on 2-step verification, create an **App Password**, and set the `EMAIL_*` variables in `.env.example`.
+Locally, emails print to the console until you set `EMAIL_HOST`. To send through the team Gmail account:
+
+1. The account needs 2-Step Verification on, and an **App Password** (Google Account → Security → App passwords). Your normal Gmail password won't work.
+2. Add this to `.env` (never commit it; `.env` is in `.gitignore`):
+   ```
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_USE_TLS=1
+   EMAIL_HOST_USER=<the gmail address>
+   EMAIL_HOST_PASSWORD=<the 16-character app password; spaces are fine>
+   DEFAULT_FROM_EMAIL=OT Equipment <the gmail address>
+   ```
+3. Restart `runserver`, then send a test email with Django's built-in command:
+   ```bash
+   .venv/bin/python manage.py sendtestemail you@example.com
+   ```
+4. Overdue notices go to the issuing OT's email address (their Staff record), via `send_overdue_notices`.
+
+Gmail allows about 500 messages a day from a normal account, which is plenty for a demo.
 
 **Render's free web services block outbound SMTP (ports 25, 465 and 587)** ([changelog](https://render.com/changelog/free-web-services-will-no-longer-allow-outbound-traffic-to-smtp-ports)). On Render, Gmail SMTP will time out unless you either:
-- move the web service to a paid instance, or
+- move the web service to a paid instance, then add the same `EMAIL_*` values under Environment in the Render dashboard (not in `render.yaml`), or
 - send over HTTPS instead: an email API such as Postmark, Mailgun or SendGrid (each has a Django backend package), or the Gmail API.
 
 For the demo, the console backend plus a screenshot of the email is enough.
