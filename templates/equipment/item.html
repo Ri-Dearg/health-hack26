@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ item.asset_number }} · OT equipment</title>
+<style>
+  body { font: 18px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 30rem; padding: 1rem; background: #fff; color: #111; }
+  h1 { margin: 0 0 .25rem; } .muted { color: #555; }
+  .status { font-size: 1.3rem; font-weight: 600; margin: .75rem 0; }
+  .result { padding: .75rem; border: 2px solid #111; border-radius: .5rem; margin: 1rem 0; }
+  form { border-top: 1px solid #ccc; padding-top: 1rem; margin-top: 1rem; }
+  label { display: block; margin: .5rem 0 .2rem; }
+  input { font: inherit; width: 100%; padding: .5rem; box-sizing: border-box; }
+  button { font: inherit; width: 100%; padding: .9rem; margin-top: .75rem; border-radius: .5rem; border: 2px solid #111; background: #111; color: #fff; }
+  button.secondary { background: #fff; color: #111; }
+</style>
+</head>
+<body>
+  <h1>{{ item.asset_number }}</h1>
+  <div class="muted">{{ item.category }}{% if item.description %} · {{ item.description }}{% endif %}</div>
+  <div class="status">Status: {{ item.get_status_display }}{% if item.flagged %} · 🚩 flagged{% endif %}</div>
+  <div>Location: {{ item.location }} <span class="muted">({{ item.location_updated_at|timesince }} ago)</span></div>
+  {% if loan %}<div>Due back {{ loan.due_at|date:"j M" }}{% if loan.patient %} · MRN {{ loan.patient }}{% endif %}{% if loan.needs_owner %} · ⚠️ needs an owner{% endif %}</div>{% endif %}
+
+  {% if result %}<div class="result" role="status">{{ result.message }}</div>{% endif %}
+
+  <form method="post">{% csrf_token %}
+    <input type="hidden" name="expected_status" value="{{ item.status }}">
+    {% if item.status == "available" %}
+      <label for="mrn">Patient MRN (no names)</label><input id="mrn" name="mrn" autocomplete="off">
+      <label for="ward">Ward</label><input id="ward" name="ward">
+      <label for="bed">Bed</label><input id="bed" name="bed">
+      <button name="action" value="loan">Loan to this patient</button>
+    {% elif item.status == "on_loan" %}
+      <button name="action" value="return">Return to store</button>
+    {% endif %}
+    <label for="location">Where is it now?</label><input id="location" name="location" placeholder="e.g. Ward 3C">
+    <button class="secondary" name="action" value="location">Location check only</button>
+  </form>
+</body>
+</html>
