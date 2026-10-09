@@ -201,6 +201,8 @@ class LocationLog(models.Model):
         MICROBIT = "microbit", "micro:bit reader"
         PHONE = "phone", "Phone (NFC/QR)"
         MANUAL = "manual", "Manual entry"
+        SPREADSHEET = "spreadsheet", "Spreadsheet import"
+        SYNERGY = "synergy", "Synergy (EPR) event"
 
     equipment = models.ForeignKey(Equipment, on_delete=models.CASCADE, related_name="location_logs")
     tag = models.ForeignKey(Tag, on_delete=models.SET_NULL, null=True, blank=True)
