@@ -9,7 +9,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("path", nargs="?", help="Output file (default: ot-equipment-tracker_<date>.xlsx)")
-        parser.add_argument("--pool", choices=["ot", "winter"], help="Only one pool")
+        parser.add_argument("--pool", help="Only one pool, by name, e.g. \"Winter Initiative\"")
 
     def handle(self, *args, path=None, pool=None, **options):
         path = path or f"ot-equipment-tracker_{timezone.localtime():%Y-%m-%d_%H%M}.xlsx"
