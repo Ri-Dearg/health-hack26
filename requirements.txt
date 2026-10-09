@@ -1,4 +1,5 @@
 asgiref==3.12.1
+certifi==2026.7.22
 dj-database-url==3.1.2
 django==5.2.18
 et-xmlfile==2.0.0
