@@ -119,6 +119,12 @@ STORAGES = {
 }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+LOGIN_URL = "admin:login"
+
+# Tag reads: ignore a second change to the same item within this many seconds.
+TAG_REPEAT_SECONDS = int(os.environ.get("TAG_REPEAT_SECONDS", 60))
+# If set, readers must send it as the X-Device-Token header to /api/tag-read/.
+DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
 
 
 # python.org's macOS Python ships without CA certificates, so TLS to smtp.gmail.com fails with
