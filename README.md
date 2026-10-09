@@ -80,6 +80,24 @@ The import also warns about identifiers shared by two items (D11 and D12 have th
 - `export_tracker [file.xlsx] [--pool ot|winter]` / `import_tracker file.xlsx [--apply] [--pool winter]`: the Excel round trip from the command line (import previews unless `--apply`)
 - `simulate_adt A03 MRN100001 [--ward ...]`: pretend Synergy sent a discharge (A03) or transfer (A02)
 
+## Tag reads and QR (the team's flowchart)
+
+`equipment/events.py` follows the flowchart. Every read or action is saved as a **Tag event** (in the admin), with what was decided and why.
+
+- **Readers** (micro:bit bridge, phone) `POST /api/tag-read/` with JSON `{"tag_id": "...", "reader_id": "...", "time": "...optional ISO..."}`:
+  - unknown or disabled tag: nothing changes; flagged for review
+  - same item changed in the last `TAG_REPEAT_SECONDS` (60): ignored, reason recorded
+  - available: opens a loan (needs an owner, since there's no card tap yet); on loan: returns it and offers it to the waitlist
+  - any other status (missing, awaiting repair, allocated): nothing changes; flagged for review
+  ```bash
+  curl -X POST localhost:8000/api/tag-read/ -H 'Content-Type: application/json' -d '{"tag_id": "BLUETOOTH-WCS-001", "reader_id": "store-door"}'
+  ```
+  Set `DEVICE_TOKEN` in `.env` to require an `X-Device-Token` header.
+- **QR codes or NFC tag URLs** open `/item/<tag-id or asset number>/` (staff log in once). Choose loan (MRN, ward, bed), return, or location check, then confirm.
+- **Both** go through `apply_action`, which locks the item and checks it against the latest record. If the item is already in the requested state, that shows as "already completed". If it changed to something else since the page loaded, it's a "conflict": nothing changes and the latest details are shown.
+
+Not built yet: card tap linking a read to a staff member, grouped QR items, and a live dashboard.
+
 ## Devices on localhost (demo)
 
 - **The micro:bit bridge and the laptop browser** use `http://localhost:8000` directly.
