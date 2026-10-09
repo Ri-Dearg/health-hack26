@@ -116,3 +116,25 @@ class SynergyTests(TestCase):
         handle_adt("A02", "MRN5", ward="Ward 3C", bed="7")
         self.loan.refresh_from_db()
         self.assertEqual((self.loan.ward, self.loan.bed), ("Ward 3C", "7"))
+
+
+class EquipmentFormTests(TestCase):
+    def setUp(self):
+        from equipment.models import Pool
+        self.data = {
+            "asset_number": "N1", "category": Category.objects.create(name="Chair").pk,
+            "pool": Pool.objects.get(name="OT Department").pk, "status": "available", "location": "OT store",
+            "location_updated_at": "2026-10-09 12:00", "barcode": "",
+        }
+
+    def test_new_item_needs_a_barcode(self):
+        from equipment.admin import EquipmentForm
+        self.assertIn("barcode", EquipmentForm(data=self.data).errors)
+        self.assertTrue(EquipmentForm(data=self.data | {"barcode": "OT1"}).is_valid())
+
+    def test_existing_item_without_barcode_can_still_be_edited_but_not_duplicated(self):
+        from equipment.admin import EquipmentForm
+        item = Equipment.objects.create(asset_number="N1", category_id=self.data["category"])
+        self.assertTrue(EquipmentForm(data=self.data, instance=item).is_valid())
+        Equipment.objects.create(asset_number="N2", category_id=self.data["category"], barcode="OT1")
+        self.assertIn("barcode", EquipmentForm(data=self.data | {"barcode": "OT1"}, instance=item).errors)
