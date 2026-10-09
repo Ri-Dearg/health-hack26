@@ -46,24 +46,45 @@ Patient-name columns are ignored, so only the MRN is kept. Columns missing from 
 
 ### TUH's register
 
-Tested against the transcribed Wheelchair Asset Register (Asset Register and Cushion Register tabs, 74 items). The importer understands its layout:
+Every column of the register (Asset Register and Cushion Register tabs) is stored, under the register's own heading. The admin's Equipment list shows them in the register's order.
 
-| Register | In the app |
+| Register column | Stored as | Notes |
+|---|---|---|
+| Asset / AssetTrak (`AT+` / `AT-`) | Equipment: AssetTrak | *Assumed* to mean "on AssetTrak" |
+| Asset No. | Equipment: Asset No. | Unique |
+| Type | Equipment: Type | Make and model |
+| Size (WxDxH) | Equipment: Size | As written |
+| Serial No. / Serial no | Equipment: Serial No. | Optional. `SN:` prefix and `N/A` cleaned up |
+| HC21 No. | Equipment: HC21 No. | Meaning not confirmed yet |
+| DML No. | Equipment: DML No. | Meaning not confirmed yet. `DML` prefix cleaned up |
+| Max Wgt / Wgt Capacity | Equipment: Max Wgt | As written, `N/A` included |
+| Therapist | Loan: issued by | Matched to a staff account. If no match, kept as written and the loan "needs an owner" |
+| Patient Name | **Not stored** | MRN only, by design |
+| MRN | Loan: patient | |
+| Ward / Location | Equipment: Ward / Location | |
+| Updated | Equipment: Updated | When the location was last confirmed |
+| Status | Equipment: Status, plus Status on register | Status is one of the brief's five. The register's exact text is kept too (e.g. `OWWP`, `STL - Due back in October.`) |
+| Comments | Equipment: Comments | Open text, e.g. replacement cover details. Text found in a date column also lands here |
+| Last Service date | Equipment: Last Service date | |
+| Purchased in | Equipment: Purchased in | `May-26` and `2024` stored as the first day of that month or year |
+| Replacement cover | Equipment: Replacement cover | Yes or No. Blank where it doesn't apply (chairs) |
+| Grey "For the provision of clients in …" rows | Pool | e.g. "Burkitt / ARHC", "WSU / ASU only (own funding)" |
+| Yellow Asset No. / red row | Flagged / Missing | |
+
+**Barcode** isn't a column on the register we have, but the brief says the tracker has one. It's required for new items in the admin, and must be unique. Imported items without one aren't blocked: the import warns, and the Equipment list's "Has barcode: No" filter lists them.
+
+How the register's status codes map to the five statuses:
+
+| Register says | Status |
 |---|---|
-| Asset No., Type, Size (WxDxH), Serial No., HC21 No., DML No., Max Wgt, Comments, Last Service date, Purchased in, Replacement cover | Same-named fields (Type = make and model). `SN:`/`DML` prefixes and `N/A` are cleaned up |
-| AT+ / AT- (column A) | On AssetTrak yes/no (*assumed meaning*) |
-| Status `OWWP` | On loan (*assumed: on ward with patient*). No patient or therapist is recorded, so these open as loans that need an owner, dated from "Updated" |
+| `OWWP` | On loan (*assumed: on ward with patient*). No patient or therapist is recorded, so these are loans that need an owner, dated from "Updated" |
 | `STL …` | On loan, short-term (went home) |
 | `OT Dept`, `Ready for use`, a storeroom | Available |
 | `Workshop`, `WASH` | Awaiting repair (the brief has no "being cleaned" status) |
 | `Missing …`, `Awaiting reimbursement` | Missing |
-| Anything else (`With D50`, `?`, `Patrick to update Sarah`) | Kept in the notes; item flagged for someone to check |
-| Grey "For the provision of clients in …" rows | Start a pool (e.g. "Burkitt / ARHC", "WSU / ASU only (own funding)") |
-| Yellow Asset No. / red row | Flagged / missing |
-| Updated | When the item's location was last confirmed |
-| Patient Name | Ignored, never stored |
+| Anything else (`With D50`, `?`, `Patrick to update Sarah`) | Unchanged, and flagged for someone to check |
 
-The import also warns about identifiers shared by two items (D11 and D12 have the same HC21 and DML numbers in the register). The export uses the register's own headings first, so staff recognise it.
+The import also warns about identifiers shared by two items (D11 and D12 have the same HC21 and DML numbers in the register).
 
 ## Synergy (design only)
 
