@@ -13,6 +13,8 @@
   input { font: inherit; width: 100%; padding: .5rem; box-sizing: border-box; }
   button { font: inherit; width: 100%; padding: .9rem; margin-top: .75rem; border-radius: .5rem; border: 2px solid #111; background: #111; color: #fff; }
   button.secondary { background: #fff; color: #111; }
+  .details { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .75rem; margin: .75rem 0; }
+  .details dt { color: #555; } .details dd { margin: 0; }
 </style>
 </head>
 <body>
@@ -20,6 +22,15 @@
   <div class="muted">{{ item.category }}{% if item.description %} · {{ item.description }}{% endif %}</div>
   <div class="status">Status: {{ item.get_status_display }}{% if item.flagged %} · 🚩 flagged{% endif %}</div>
   <div>Location: {{ item.location }} <span class="muted">({{ item.location_updated_at|timesince }} ago)</span></div>
+  <dl class="details">
+    {% if item.description %}<dt>Type</dt><dd>{{ item.description }}</dd>{% endif %}
+    {% if item.size %}<dt>Size</dt><dd>{{ item.size }}</dd>{% endif %}
+    {% if item.max_weight %}<dt>Max Wgt</dt><dd>{{ item.max_weight }}</dd>{% endif %}
+    {% if item.replacement_cover is not None %}<dt>Replacement cover</dt><dd>{{ item.replacement_cover|yesno:"Yes,No" }}</dd>{% endif %}
+    <dt>Barcode</dt><dd>{{ item.barcode|default:"⚠️ none yet" }}</dd>
+    {% if item.serial_number %}<dt>Serial No.</dt><dd>{{ item.serial_number }}</dd>{% endif %}
+    {% if item.comments %}<dt>Comments</dt><dd>{{ item.comments|linebreaksbr }}</dd>{% endif %}
+  </dl>
   {% if loan %}<div>Due back {{ loan.due_at|date:"j M" }}{% if loan.patient %} · MRN {{ loan.patient }}{% endif %}{% if loan.needs_owner %} · ⚠️ needs an owner{% endif %}</div>{% endif %}
 
   {% if result %}<div class="result" role="status">{{ result.message }}</div>{% endif %}
