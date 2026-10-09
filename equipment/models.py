@@ -247,3 +247,34 @@ class LocationLog(models.Model):
 
     def __str__(self):
         return f"{self.equipment.asset_number}: {self.get_event_display()} at {self.recorded_at:%d %b %H:%M}"
+
+
+class TagEvent(models.Model):
+    """Every tag read or QR action and what the rules decided. Unknown tags and odd cases wait here for review."""
+
+    class Outcome(models.TextChoices):
+        LOAN = "loan", "Loan opened"
+        RETURN = "return", "Returned"
+        LOCATION = "location", "Location checked"
+        UNKNOWN_TAG = "unknown_tag", "Unknown or disabled tag"
+        REPEAT = "repeat", "Repeated read, ignored"
+        ALREADY_DONE = "already_done", "Already completed"
+        CONFLICT = "conflict", "Conflicting update"
+        NEEDS_REVIEW = "needs_review", "Needs staff review"
+
+    tag_uid = models.CharField("tag ID", max_length=100, blank=True)
+    reader_id = models.CharField("reader ID", max_length=100, blank=True)
+    source = models.CharField(max_length=20, choices=LocationLog.Source.choices)
+    read_at = models.DateTimeField(default=timezone.now, db_index=True)
+    equipment = models.ForeignKey(Equipment, on_delete=models.SET_NULL, null=True, blank=True, related_name="events")
+    recorded_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    outcome = models.CharField(max_length=20, choices=Outcome.choices)
+    reason = models.CharField(max_length=200, blank=True)
+    needs_review = models.BooleanField(default=False)
+    raw_payload = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-read_at"]
+
+    def __str__(self):
+        return f"{self.tag_uid or self.equipment}: {self.get_outcome_display()}"
