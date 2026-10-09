@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from . import services, spreadsheet, synergy
-from .models import Category, Equipment, Loan, LocationLog, Patient, Tag, WaitlistEntry
+from .models import Category, Equipment, Loan, LocationLog, Patient, Pool, Tag, WaitlistEntry
 
 admin.site.site_header = "TUH OT equipment"
 admin.site.site_title = "OT equipment"
@@ -72,30 +72,37 @@ class LocationLogInline(admin.TabularInline):
 
 class TrackerImportForm(forms.Form):
     file = forms.FileField(label="Excel file (.xlsx)")
-    default_pool = forms.ChoiceField(
-        choices=Equipment.Pool.choices, initial=Equipment.Pool.OT,
-        help_text="Pool for new items when the sheet has no Pool column (use Winter Initiative for that spreadsheet).",
+    default_pool = forms.ModelChoiceField(
+        queryset=Pool.objects.all(), to_field_name="name", required=False,
+        help_text="Pool for new items when the sheet doesn't say (use Winter Initiative for that spreadsheet). "
+                  "Blank means OT Department.",
     )
 
 
 @admin.register(Equipment)
 class EquipmentAdmin(admin.ModelAdmin):
-    list_display = ("asset_number", "category", "status_display", "location", "location_updated_at", "pool")
-    list_filter = ("status", "category", "pool")
-    search_fields = ("asset_number", "barcode", "serial_number", "description", "tags__uid")
+    list_display = ("asset_number", "category", "description", "status_display", "location", "location_updated_at",
+                    "pool", "flag")
+    list_filter = ("status", "flagged", "category", "pool", "on_assettrak")
+    search_fields = ("asset_number", "barcode", "serial_number", "hc21_number", "dml_number", "description", "tags__uid")
     readonly_fields = ("location_updated_at",)
     inlines = [TagInline, LoanInline, LocationLogInline]
     actions = ["return_to_store", "mark_awaiting_repair", "mark_missing"]
     fieldsets = (
-        (None, {"fields": ("asset_number", "category", "description", "pool", "status")}),
+        (None, {"fields": ("asset_number", "category", "description", "pool", "status", "flagged")}),
+        ("Fit", {"fields": ("size", "max_weight", "replacement_cover")}),
         ("Where", {"fields": ("location", "location_updated_at")}),
-        ("Identifiers", {"fields": ("barcode", "serial_number")}),
+        ("Identifiers", {"fields": ("barcode", "serial_number", "hc21_number", "dml_number", "on_assettrak")}),
         ("Service", {"fields": ("purchase_date", "last_service_date", "notes")}),
     )
 
     @admin.display(description="Status", ordering="status")
     def status_display(self, obj):
         return status_label(obj)
+
+    @admin.display(description="Flag", ordering="flagged")
+    def flag(self, obj):
+        return "🚩 Check" if obj.flagged else ""
 
     def get_urls(self):
         return [
@@ -124,15 +131,13 @@ class EquipmentAdmin(admin.ModelAdmin):
             form = TrackerImportForm(request.POST, request.FILES)
             if form.is_valid():
                 data = form.cleaned_data["file"].read()
+                pool = form.cleaned_data["default_pool"].name if form.cleaned_data["default_pool"] else Pool.DEFAULT_NAME
                 try:
-                    report = spreadsheet.import_workbook(io.BytesIO(data), dry_run=True,
-                                                         default_pool=form.cleaned_data["default_pool"])
+                    report = spreadsheet.import_workbook(io.BytesIO(data), dry_run=True, default_pool=pool)
                 except Exception as exc:  # not an xlsx, corrupt file, etc.
                     self.message_user(request, f"Couldn't read that file: {exc}", messages.ERROR)
                 else:
-                    request.session["tracker_import"] = {
-                        "data": base64.b64encode(data).decode(), "pool": form.cleaned_data["default_pool"],
-                    }
+                    request.session["tracker_import"] = {"data": base64.b64encode(data).decode(), "pool": pool}
                     return TemplateResponse(request, "admin/equipment/import.html", context | {"report": report})
         elif request.method == "POST" and "apply" in request.POST:
             pending = request.session.pop("tracker_import", None)
@@ -160,6 +165,16 @@ class EquipmentAdmin(admin.ModelAdmin):
     @admin.action(description="Mark missing")
     def mark_missing(self, request, queryset):
         queryset.update(status=Equipment.Status.MISSING)
+
+
+@admin.register(Pool)
+class PoolAdmin(admin.ModelAdmin):
+    list_display = ("name", "description", "item_count")
+    search_fields = ("name",)
+
+    @admin.display(description="Items")
+    def item_count(self, obj):
+        return obj.equipment.count()
 
 
 @admin.register(Tag)
