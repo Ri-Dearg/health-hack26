@@ -18,11 +18,13 @@
     <li>✏️ Updated items: {{ report.updated|length }}</li>
     <li>➖ Unchanged: {{ report.unchanged }}</li>
     <li>⚠️ Conflicts (not applied): {{ report.conflicts|length }}</li>
+    <li>🔄 Loans opened: {{ report.loans_opened }}{% if report.loans_without_patient %} ({{ report.loans_without_patient }} with no patient recorded){% endif %}</li>
     <li>📋 Waitlist: {{ report.waitlist_created }} new, {{ report.waitlist_updated }} updated</li>
   </ul>
   {% if report.updated %}<h3>Updated</h3><ul>{% for asset, fields in report.updated %}<li>{{ asset }}: {{ fields|join:", " }}</li>{% endfor %}</ul>{% endif %}
   {% if report.conflicts %}<h3>Conflicts: a person needs to decide</h3><ul>{% for asset, reason in report.conflicts %}<li>{{ asset }}: {{ reason }}</li>{% endfor %}</ul>{% endif %}
   {% if report.offers %}<h3>Waitlist offers</h3><ul>{% for o in report.offers %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+  {% if report.pools %}<h3>Pools from section rows</h3><ul>{% for p in report.pools %}<li>{{ p }}</li>{% endfor %}</ul>{% endif %}
   {% if report.warnings %}<h3>Warnings</h3><ul>{% for w in report.warnings %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
   {% if report.dry_run and report.changes %}
     <form method="post">{% csrf_token %}<input type="submit" name="apply" value="Apply these changes"></form>
