@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.html import format_html
 
 from . import services, spreadsheet, synergy
-from .models import Category, Equipment, Loan, LocationLog, Patient, Pool, Tag, WaitlistEntry
+from .models import Category, Equipment, Loan, LocationLog, Patient, Pool, Tag, TagEvent, WaitlistEntry
 
 admin.site.site_header = "TUH OT equipment"
 admin.site.site_title = "OT equipment"
@@ -285,3 +285,21 @@ class LocationLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(TagEvent)
+class TagEventAdmin(admin.ModelAdmin):
+    list_display = ("read_at", "tag_uid", "reader_id", "equipment", "outcome", "needs_review", "reason")
+    list_filter = ("needs_review", "outcome", "source")
+    search_fields = ("tag_uid", "reader_id", "equipment__asset_number")
+    date_hierarchy = "read_at"
+    list_editable = ("needs_review",)  # untick once someone has looked at it
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields if f.name != "needs_review"]
