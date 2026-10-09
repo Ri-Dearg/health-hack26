@@ -1,0 +1,11 @@
+asgiref==3.12.1
+dj-database-url==3.1.2
+django==5.2.18
+et-xmlfile==2.0.0
+gunicorn==26.2.0
+openpyxl==3.1.5
+psycopg==3.3.6
+psycopg-binary==3.3.6
+python-dotenv==1.2.4
+sqlparse==0.6.0
+whitenoise==6.12.0
