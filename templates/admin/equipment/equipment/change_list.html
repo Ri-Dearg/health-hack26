@@ -1,0 +1,6 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:equipment_export' %}">Export to Excel</a></li>
+  {% if has_add_permission %}<li><a href="{% url 'admin:equipment_import' %}">Import from Excel</a></li>{% endif %}
+  {{ block.super }}
+{% endblock %}
