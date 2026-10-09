@@ -18,6 +18,25 @@ class Category(models.Model):
         return self.name
 
 
+class Pool(models.Model):
+    """Who an item is for. The register has sections such as "For the provision of clients in Burkitt / ARHC"."""
+
+    DEFAULT_NAME = "OT Department"
+
+    name = models.CharField(max_length=100, unique=True)
+    description = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+def default_pool():
+    return Pool.objects.get_or_create(name=Pool.DEFAULT_NAME)[0].pk
+
+
 class Equipment(models.Model):
     class Status(models.TextChoices):
         # The brief's own five statuses. "Overdue" and "needs an owner" are loan flags, not statuses.
@@ -27,21 +46,28 @@ class Equipment(models.Model):
         MISSING = "missing", "Missing"
         ALLOCATED = "allocated", "Allocated to another patient"
 
-    class Pool(models.TextChoices):
-        OT = "ot", "OT Department"
-        WINTER = "winter", "Winter Initiative"
-
     asset_number = models.CharField(max_length=50, unique=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="items")
-    description = models.CharField(max_length=200, blank=True)
+    description = models.CharField("make and model", max_length=200, blank=True)
+    size = models.CharField(max_length=100, blank=True, help_text="As written on the register, e.g. 18\" x 17\".")
+    max_weight = models.CharField(
+        "max user weight", max_length=50, blank=True, help_text="As written, e.g. 135kg or 160kg / 25st.",
+    )
     barcode = models.CharField(max_length=100, blank=True)
     serial_number = models.CharField(max_length=100, blank=True, help_text="Not every item has one.")
-    pool = models.CharField(max_length=10, choices=Pool.choices, default=Pool.OT)
+    hc21_number = models.CharField("HC21 No.", max_length=50, blank=True)
+    dml_number = models.CharField("DML No.", max_length=50, blank=True)
+    on_assettrak = models.BooleanField(
+        "on AssetTrak", null=True, blank=True, help_text="AT+ / AT- on the register. Unknown if blank.",
+    )
+    pool = models.ForeignKey(Pool, on_delete=models.PROTECT, default=default_pool, related_name="equipment")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     location = models.CharField(max_length=100, default="OT store", help_text="Ward, bed or 'OT store'.")
     location_updated_at = models.DateTimeField(default=timezone.now)
     purchase_date = models.DateField(null=True, blank=True)
     last_service_date = models.DateField(null=True, blank=True)
+    replacement_cover = models.BooleanField(null=True, blank=True, help_text="Cushions: has a spare cover.")
+    flagged = models.BooleanField(default=False, help_text="Needs someone to look at it (yellow on the register).")
     notes = models.TextField(blank=True)
 
     class Meta:
