@@ -6,7 +6,7 @@ from openpyxl.styles import PatternFill
 
 from equipment import services
 from equipment.models import Category, Equipment, Loan, Patient, WaitlistEntry
-from equipment.spreadsheet import export_bytes, import_workbook
+from equipment.spreadsheet import ITEM_ALIASES, ImportReport, _find_header, export_bytes, import_workbook
 
 
 def edit(xlsx, sheet, asset, header, value):
@@ -39,15 +39,15 @@ class RoundTripTests(TestCase):
     def test_edit_in_excel_is_applied(self):
         xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Strap frayed")
         report = import_workbook(io.BytesIO(xlsx), dry_run=False)
-        self.assertEqual(report.updated, [("SLB-001", ["notes"])])
+        self.assertEqual(report.updated, [("SLB-001", ["comments"])])
         self.a.refresh_from_db()
-        self.assertEqual(self.a.notes, "Strap frayed")
+        self.assertEqual(self.a.comments, "Strap frayed")
 
     def test_dry_run_changes_nothing(self):
         xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Strap frayed")
         self.assertEqual(len(import_workbook(io.BytesIO(xlsx), dry_run=True).updated), 1)
         self.a.refresh_from_db()
-        self.assertEqual(self.a.notes, "")
+        self.assertEqual(self.a.comments, "")
 
     def test_change_in_app_only_is_kept(self):
         xlsx = export_bytes()
@@ -59,11 +59,11 @@ class RoundTripTests(TestCase):
 
     def test_change_in_both_is_a_conflict_and_not_applied(self):
         xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Excel edit")
-        Equipment.objects.filter(pk=self.a.pk).update(notes="App edit")
+        Equipment.objects.filter(pk=self.a.pk).update(comments="App edit")
         report = import_workbook(io.BytesIO(xlsx), dry_run=False)
         self.assertEqual([c[0] for c in report.conflicts], ["SLB-001"])
         self.a.refresh_from_db()
-        self.assertEqual(self.a.notes, "App edit")
+        self.assertEqual(self.a.comments, "App edit")
 
     def test_marking_returned_in_excel_closes_loan_and_offers_waitlist(self):
         xlsx = edit(export_bytes(), "Sliding board", "SLB-002", "Status", "Available")
@@ -175,7 +175,7 @@ class TuhRegisterTests(TestCase):
         self.assertEqual((x1.description, x1.size, x1.max_weight), ("Test Chair", '17"', "135kg"))
         self.assertEqual((x1.serial_number, x1.hc21_number, x1.dml_number), ("111", "9000001", "500"))
         self.assertTrue(x1.on_assettrak)
-        self.assertEqual(x1.status, Equipment.Status.ON_LOAN)  # OWWP
+        self.assertEqual((x1.status, x1.register_status), (Equipment.Status.ON_LOAN, "OWWP"))
         self.assertEqual(timezone.localdate(x1.open_loan.issued_at).isoformat(), "2026-09-01")  # from Updated
         self.assertTrue(x1.open_loan.needs_owner)
         self.assertEqual(str(x1.last_service_date), "2025-07-03")
@@ -187,10 +187,10 @@ class TuhRegisterTests(TestCase):
         self.assertEqual((x3.status, x3.location, str(x3.purchase_date)), ("awaiting_repair", "Workshop", "2025-10-01"))
         x4 = get("X04")
         self.assertEqual((x4.status, x4.location), ("missing", "Unknown"))
-        self.assertIn("Missing since 19/09/2025", x4.notes)
+        self.assertIn("Missing since 19/09/2025", x4.comments)
         x5 = get("X05")
         self.assertTrue(x5.flagged)
-        self.assertIn("Register status: Ask Pat", x5.notes)
+        self.assertEqual(x5.register_status, "Ask Pat")
         self.assertEqual((x5.serial_number, str(x5.purchase_date)), ("", "2024-01-01"))
         x6 = get("X06")
         self.assertEqual(x6.pool.name, "Test Ward")
@@ -209,3 +209,27 @@ class TuhRegisterTests(TestCase):
         import_workbook(io.BytesIO(self.make_register()), dry_run=False)
         report = import_workbook(io.BytesIO(self.make_register()), dry_run=True)
         self.assertEqual((report.changes, report.loans_opened), (0, 0))
+
+    def test_every_register_column_is_recognised(self):
+        cushion_headers = ["AssetTrak", "Asset No.", "Type", "Size (WxDxH)", "HC21 No.", "DML No.", "Serial no",
+                           "Wgt Capacity", "Therapist", "Patient Name", "MRN", "Ward/Location", "Updated", "Status",
+                           "purchased in:", "Replacement cover", "Comments"]
+        for headers in (self.HEADERS, cushion_headers):
+            ws = Workbook().active
+            ws.append(headers)
+            report = ImportReport(dry_run=True)
+            _, mapping = _find_header(ws, ITEM_ALIASES, report)
+            self.assertEqual([h for i, h in enumerate(headers) if i not in mapping], ["Patient Name"])  # MRN only
+            self.assertFalse([w for w in report.warnings if "not recognised" in w])
+
+    def test_unmatched_therapist_is_kept_as_written(self):
+        wb = load_workbook(io.BytesIO(self.make_register()))
+        wb["Asset Register"]["I2"] = "Invented Therapist"  # X01, out on a ward
+        out = io.BytesIO()
+        wb.save(out)
+        report = import_workbook(io.BytesIO(out.getvalue()), dry_run=False)
+        loan = Equipment.objects.get(asset_number="X01").open_loan
+        self.assertEqual((loan.issued_by, loan.issued_by_name), (None, "Invented Therapist"))
+        self.assertTrue(any("Kept as written" in w for w in report.warnings))
+        again = import_workbook(io.BytesIO(export_bytes()), dry_run=True)
+        self.assertEqual((again.changes, len(again.conflicts)), (0, 0))
