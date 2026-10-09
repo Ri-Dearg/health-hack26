@@ -15,7 +15,10 @@ def get_patient(mrn: str) -> Patient:
 
 
 @transaction.atomic
-def issue_item(equipment, *, staff=None, mrn="", ward="", bed="", source=LocationLog.Source.MANUAL, due_at=None):
+def issue_item(
+    equipment, *, staff=None, mrn="", ward="", bed="", source=LocationLog.Source.MANUAL,
+    due_at=None, issued_at=None, short_term_loan=False,
+):
     """Open a loan. Never refuses because a field is missing: no staff means the loan needs an owner."""
     loan = Loan.objects.create(
         equipment=equipment,
@@ -23,7 +26,9 @@ def issue_item(equipment, *, staff=None, mrn="", ward="", bed="", source=Locatio
         patient=get_patient(mrn) if mrn else None,
         ward=ward,
         bed=bed,
+        issued_at=issued_at or timezone.now(),
         due_at=due_at,
+        short_term_loan=short_term_loan,
     )
     equipment.status = Equipment.Status.ON_LOAN
     equipment.location = ward or "Left the store"
