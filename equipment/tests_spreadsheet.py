@@ -14,7 +14,7 @@ def edit(xlsx, sheet, asset, header, value):
     ws = wb[sheet]
     headers = [c.value for c in ws[1]]
     for row in ws.iter_rows(min_row=2):
-        if row[0].value == asset:
+        if row[headers.index("Asset No.")].value == asset:
             row[headers.index(header)].value = value
     out = io.BytesIO()
     wb.save(out)
@@ -37,14 +37,14 @@ class RoundTripTests(TestCase):
         self.assertEqual(report.unchanged, 2)
 
     def test_edit_in_excel_is_applied(self):
-        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Notes", "Strap frayed")
+        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Strap frayed")
         report = import_workbook(io.BytesIO(xlsx), dry_run=False)
         self.assertEqual(report.updated, [("SLB-001", ["notes"])])
         self.a.refresh_from_db()
         self.assertEqual(self.a.notes, "Strap frayed")
 
     def test_dry_run_changes_nothing(self):
-        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Notes", "Strap frayed")
+        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Strap frayed")
         self.assertEqual(len(import_workbook(io.BytesIO(xlsx), dry_run=True).updated), 1)
         self.a.refresh_from_db()
         self.assertEqual(self.a.notes, "")
@@ -58,7 +58,7 @@ class RoundTripTests(TestCase):
         self.assertEqual(self.a.status, Equipment.Status.MISSING)
 
     def test_change_in_both_is_a_conflict_and_not_applied(self):
-        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Notes", "Excel edit")
+        xlsx = edit(export_bytes(), "Sliding board", "SLB-001", "Comments", "Excel edit")
         Equipment.objects.filter(pk=self.a.pk).update(notes="App edit")
         report = import_workbook(io.BytesIO(xlsx), dry_run=False)
         self.assertEqual([c[0] for c in report.conflicts], ["SLB-001"])
@@ -123,3 +123,89 @@ class OriginalTrackerTests(TestCase):
         self.assertEqual(timezone.localdate(loan.issued_at).isoformat(), "2026-10-05")
         self.assertEqual(timezone.localdate(loan.due_at).isoformat(), "2026-11-04")  # 30 days, across the clock change
         self.assertTrue(loan.needs_owner)
+
+
+class TuhRegisterTests(TestCase):
+    """Invented rows in the shape of TUH's transcribed Wheelchair Asset Register (9 October 2026)."""
+
+    HEADERS = ["Asset", "Asset No.", "Type", "Size (WxDxH)", "Serial No.", "HC21 No.", "DML No.", "Max Wgt",
+               "Therapist", "Patient Name", "MRN", "Ward / Location", "Updated", "Status", "Comments",
+               "Last Service date", "Purchased in"]
+
+    def make_register(self):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Asset Register"
+        ws.append(self.HEADERS)
+        rows = [
+            ["AT+", "X01", "Test Chair", '17"', "SN: 111", "9000001", "DML500", "135kg", None, None, None, None,
+             "01/09/2026", "OWWP", None, "03.07.2025", None],
+            ["AT-", "X02", "Test Chair", '18"', "222", "9000002", "500002", "135kg", None, None, None, None,
+             "29/09/2026", "OT Dept", None, "29/09/2026", "May-26"],
+            ["AT-", "X03", "Test Chair", '18"', "333", "9000003", "500003", "135kg", None, None, None, None,
+             "08/10/2026", "Workshop", None, None, "45931"],
+            ["AT+", "X04", "Test Chair", '15"', "444", "9000003", "500004", None, None, None, None, None,
+             "19/09/2025", None, None, "Missing since 19/09/2025", None],
+            ["AT+", "X05", "Test Cushion", '18x18"', "N/A", "9000005", None, "130 kg", None, None, None, None,
+             "06/10/2026", "Ask Pat", None, None, "2024"],
+            [None, "For the provision of clients in Test Ward", None, None, None, None, None, None, None, None,
+             None, None, None, None, None, None, None],
+            ["AT-", "X06", "Test Chair", '17"', "666", "9000006", "500006", "160kg", None, None, None, None,
+             "05/10/2026", "STL - due back in October", None, None, None],
+        ]
+        for values in rows:
+            ws.append(values)
+        red, yellow = PatternFill("solid", fgColor="FFE02020"), PatternFill("solid", fgColor="FFFFFF00")
+        for cell in ws[5]:
+            cell.fill = red      # X04: red row = missing
+        ws["B6"].fill = yellow  # X05: yellow Asset No. = flagged
+        notes = wb.create_sheet("Notes")
+        notes.append(["Transcription notes: not data"])
+        out = io.BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
+    def test_import_reads_tuh_columns_codes_colours_and_sections(self):
+        report = import_workbook(io.BytesIO(self.make_register()), dry_run=False)
+        self.assertEqual(sorted(report.created), ["X01", "X02", "X03", "X04", "X05", "X06"])
+        get = lambda a: Equipment.objects.select_related("category", "pool").get(asset_number=a)
+
+        x1 = get("X01")
+        self.assertEqual(x1.category.name, "Specialised wheelchair")
+        self.assertEqual((x1.description, x1.size, x1.max_weight), ("Test Chair", '17"', "135kg"))
+        self.assertEqual((x1.serial_number, x1.hc21_number, x1.dml_number), ("111", "9000001", "500"))
+        self.assertTrue(x1.on_assettrak)
+        self.assertEqual(x1.status, Equipment.Status.ON_LOAN)  # OWWP
+        self.assertEqual(timezone.localdate(x1.open_loan.issued_at).isoformat(), "2026-09-01")  # from Updated
+        self.assertTrue(x1.open_loan.needs_owner)
+        self.assertEqual(str(x1.last_service_date), "2025-07-03")
+
+        x2 = get("X02")
+        self.assertEqual((x2.status, x2.location, str(x2.purchase_date)), ("available", "OT store", "2026-05-01"))
+        self.assertFalse(x2.on_assettrak)
+        x3 = get("X03")
+        self.assertEqual((x3.status, x3.location, str(x3.purchase_date)), ("awaiting_repair", "Workshop", "2025-10-01"))
+        x4 = get("X04")
+        self.assertEqual((x4.status, x4.location), ("missing", "Unknown"))
+        self.assertIn("Missing since 19/09/2025", x4.notes)
+        x5 = get("X05")
+        self.assertTrue(x5.flagged)
+        self.assertIn("Register status: Ask Pat", x5.notes)
+        self.assertEqual((x5.serial_number, str(x5.purchase_date)), ("", "2024-01-01"))
+        x6 = get("X06")
+        self.assertEqual(x6.pool.name, "Test Ward")
+        self.assertTrue(x6.open_loan.short_term_loan)
+
+        self.assertFalse(Patient.objects.exists(), "no MRNs in the register, so no patients")
+        self.assertTrue(any("X03, X04 share the same HC21 No." in w for w in report.warnings))
+        self.assertTrue(any("Patient names are never stored" in w for w in report.warnings))
+
+    def test_register_round_trips_through_our_export(self):
+        import_workbook(io.BytesIO(self.make_register()), dry_run=False)
+        report = import_workbook(io.BytesIO(export_bytes()), dry_run=True)
+        self.assertEqual((report.changes, len(report.conflicts), report.unchanged), (0, 0, 6))
+
+    def test_reimporting_the_same_register_changes_nothing(self):
+        import_workbook(io.BytesIO(self.make_register()), dry_run=False)
+        report = import_workbook(io.BytesIO(self.make_register()), dry_run=True)
+        self.assertEqual((report.changes, report.loans_opened), (0, 0))
