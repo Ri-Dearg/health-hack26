@@ -26,6 +26,18 @@ CATEGORIES = {
     "Sliding board": ("SLB", 2, Tag.TagType.QR),
 }
 WARDS = ["Ward 1A", "Ward 2B", "Ward 3C", "Ward 4D", "AMU"]
+# Invented register details per category: Type (make and model), Size (WxDxH), Max Wgt.
+DETAILS = {
+    "WCS": ("Tilt-in-space chair", '17"', "135kg"),
+    "WCM": ("Self-propelled chair", '18" x 17"', "125kg"),
+    "WCB": ("Bariatric chair", '24-25"', "180kg"),
+    "CSA": ("Air cell cushion", '18" x 18" x 4"', "N/A"),
+    "CSG": ("Gel and foam cushion", '18" x 18"', "130kg"),
+    "ELR": ("Elevating leg rest (pair)", "Adjustable", "135kg"),
+    "HDR": ("Contoured headrest", "Medium", ""),
+    "RLB": ("Residual limb board", '16"', "135kg"),
+    "SLB": ("Sliding board", "70cm", "150kg"),
+}
 
 
 class Command(BaseCommand):
@@ -63,14 +75,22 @@ class Command(BaseCommand):
             person.groups.add(ot_staff)
             staff.append(person)
 
-        items = []
+        items, today = [], timezone.localdate()
         for name, (prefix, count, tag_type) in CATEGORIES.items():
             category = Category.objects.create(name=name)
+            kind, size, max_weight = DETAILS[prefix]
+            cushion = prefix.startswith("CS")
             for i in range(1, count + 1):
+                n = len(items) + 1
                 item = Equipment.objects.create(
                     asset_number=f"{prefix}-{i:03d}", category=category,
-                    serial_number=f"SN{prefix}{i:04d}" if i % 2 else "",
-                    purchase_date=timezone.now().date() - timedelta(days=400 * i),
+                    on_assettrak=i % 2 == 1, description=kind, size=size, max_weight=max_weight,
+                    serial_number=f"SN{prefix}{i:04d}" if i % 2 else "",  # not every item has one
+                    hc21_number=f"{9000000 + n}", dml_number=f"{500000 + n}", barcode=f"OT{n:05d}",
+                    replacement_cover=(i != 2) if cushion else None,
+                    comments="New cushion cover" if cushion and i == 1 else "",
+                    last_service_date=today - timedelta(days=45 * i),
+                    purchase_date=today - timedelta(days=400 * i),
                 )
                 Tag.objects.create(uid=f"{tag_type.upper()}-{prefix}-{i:03d}", tag_type=tag_type, equipment=item)
                 items.append(item)
