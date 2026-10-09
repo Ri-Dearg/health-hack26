@@ -8,6 +8,7 @@ variables. Locally, put them in a `.env` file (see `.env.example`).
 import os
 from pathlib import Path
 
+import certifi
 import dj_database_url
 from dotenv import load_dotenv
 
@@ -119,6 +120,10 @@ STORAGES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+
+# python.org's macOS Python ships without CA certificates, so TLS to smtp.gmail.com fails with
+# "unable to get local issuer certificate". Use certifi's bundle unless one is already set.
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
 
 # Email: printed to the console unless EMAIL_HOST is set (e.g. Gmail SMTP).
 # Note: Render's free web services block outbound SMTP ports, see README.
