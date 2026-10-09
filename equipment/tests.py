@@ -85,7 +85,7 @@ class AdminSmokeTests(TestCase):
         import io
         upload = io.BytesIO(export.content)
         upload.name = "tracker.xlsx"
-        preview = self.client.post("/admin/equipment/equipment/import/", {"file": upload, "default_pool": "ot", "preview": "1"})
+        preview = self.client.post("/admin/equipment/equipment/import/", {"file": upload, "default_pool": "", "preview": "1"})
         self.assertContains(preview, "Preview: nothing has changed yet")
         self.assertContains(preview, "Unchanged: 20")
 
