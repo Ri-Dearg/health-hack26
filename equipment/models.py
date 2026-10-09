@@ -46,29 +46,53 @@ class Equipment(models.Model):
         MISSING = "missing", "Missing"
         ALLOCATED = "allocated", "Allocated to another patient"
 
-    asset_number = models.CharField(max_length=50, unique=True)
-    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="items")
-    description = models.CharField("make and model", max_length=200, blank=True)
-    size = models.CharField(max_length=100, blank=True, help_text="As written on the register, e.g. 18\" x 17\".")
-    max_weight = models.CharField(
-        "max user weight", max_length=50, blank=True, help_text="As written, e.g. 135kg or 160kg / 25st.",
-    )
-    barcode = models.CharField(max_length=100, blank=True)
-    serial_number = models.CharField(max_length=100, blank=True, help_text="Not every item has one.")
-    hc21_number = models.CharField("HC21 No.", max_length=50, blank=True)
-    dml_number = models.CharField("DML No.", max_length=50, blank=True)
+    # One field per column of TUH's equipment register (Asset Register and Cushion Register tabs),
+    # labelled with the register's own headings. "Therapist" and "MRN" belong to the loan, not the item.
+    # "Patient Name" is the one column never stored: MRN only.
     on_assettrak = models.BooleanField(
-        "on AssetTrak", null=True, blank=True, help_text="AT+ / AT- on the register. Unknown if blank.",
+        "AssetTrak (AT+/AT-)", null=True, blank=True,
+        help_text="Column A on the register. Assumed to mean the item is on AssetTrak. Blank if unknown.",
     )
-    pool = models.ForeignKey(Pool, on_delete=models.PROTECT, default=default_pool, related_name="equipment")
+    asset_number = models.CharField("Asset No.", max_length=50, unique=True)
+    description = models.CharField("Type", max_length=200, blank=True, help_text="Make and model.")
+    size = models.CharField("Size (WxDxH)", max_length=100, blank=True, help_text='As written, e.g. 18" x 17".')
+    serial_number = models.CharField(
+        "Serial No.", max_length=100, blank=True, help_text="Optional: not every item has one.",
+    )
+    hc21_number = models.CharField(
+        "HC21 No.", max_length=50, blank=True, help_text="From the register. Meaning not yet confirmed with TUH.",
+    )
+    dml_number = models.CharField(
+        "DML No.", max_length=50, blank=True, help_text="From the register. Meaning not yet confirmed with TUH.",
+    )
+    barcode = models.CharField(
+        max_length=100, blank=True,
+        help_text="Required for new items. Imported items without one are listed under 'Has barcode: No'.",
+    )
+    max_weight = models.CharField(
+        "Max Wgt", max_length=50, blank=True, help_text="Maximum user weight as written, e.g. 135kg or 160kg / 25st.",
+    )
+    location = models.CharField("Ward / Location", max_length=100, default="OT store", help_text="Ward, bed or 'OT store'.")
+    location_updated_at = models.DateTimeField(
+        "Updated", default=timezone.now, help_text="When the location was last confirmed.",
+    )
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.AVAILABLE)
-    location = models.CharField(max_length=100, default="OT store", help_text="Ward, bed or 'OT store'.")
-    location_updated_at = models.DateTimeField(default=timezone.now)
-    purchase_date = models.DateField(null=True, blank=True)
-    last_service_date = models.DateField(null=True, blank=True)
-    replacement_cover = models.BooleanField(null=True, blank=True, help_text="Cushions: has a spare cover.")
+    register_status = models.CharField(
+        "Status on register", max_length=200, blank=True,
+        help_text="Exactly as written on the last imported register, e.g. 'OWWP' or 'STL - Due back in October'.",
+    )
+    comments = models.TextField(blank=True, help_text="Open text, e.g. replacement cover details.")
+    last_service_date = models.DateField("Last Service date", null=True, blank=True)
+    purchase_date = models.DateField(
+        "Purchased in", null=True, blank=True, help_text="A month or year alone is stored as its first day.",
+    )
+    replacement_cover = models.BooleanField(
+        "Replacement cover", null=True, blank=True, help_text="Cushions: Yes or No. Blank where it doesn't apply.",
+    )
+    # Added by the app, not columns on the register.
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="items")
+    pool = models.ForeignKey(Pool, on_delete=models.PROTECT, default=default_pool, related_name="equipment")
     flagged = models.BooleanField(default=False, help_text="Needs someone to look at it (yellow on the register).")
-    notes = models.TextField(blank=True)
 
     class Meta:
         verbose_name_plural = "equipment"
@@ -141,6 +165,10 @@ class Loan(models.Model):
     issued_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True, related_name="loans_issued",
         help_text="Blank means the item left with no card tap: it needs an owner.",
+    )
+    issued_by_name = models.CharField(
+        "therapist (as written)", max_length=100, blank=True,
+        help_text="From an imported register, when the name doesn't match a staff account.",
     )
     ward = models.CharField(max_length=100, blank=True)
     bed = models.CharField(max_length=20, blank=True)
