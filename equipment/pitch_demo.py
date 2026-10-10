@@ -28,6 +28,7 @@ WAITLIST = [  # 휠체어 대기 명단: 우선순위가 서로 다르다. 1순�
 
 # 시뮬레이터 버튼 (자산번호, 구역)
 MOVES = [("D27", WARD_7), ("D27", RETURN_POINT)]
+CUTS = ["D12"]  # "Cut signal" / "Restore signal" 버튼
 
 
 @transaction.atomic

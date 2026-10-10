@@ -14,7 +14,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from . import pitch_demo, services
-from .location import active_tag, record_location
+from .location import active_tag, record_location, signal_states
 from .models import Equipment, Loan, LocationLog, Tag, WaitlistEntry
 
 EVENT_TEXT = {
@@ -59,10 +59,12 @@ def bridge_read(request):
 
 
 def ago(when, now):
-    """큰 화면용 상대 시간: just now / 2 min ago / 3 h ago / 4 days ago."""
+    """큰 화면용 상대 시간: just now / 25 sec ago / 2 min ago / 3 h ago / 4 days ago."""
     seconds = max(0, int((now - when).total_seconds()))
-    if seconds < 60:
+    if seconds < 10:
         return "just now"
+    if seconds < 60:
+        return f"{seconds} sec ago"  # 연결이 끊긴 장비는 초 단위로 늘어나는 게 보여야 한다
     if seconds < 3600:
         return f"{seconds // 60} min ago"
     if seconds < 86400:
@@ -79,6 +81,8 @@ def feed_data():
         .prefetch_related(Prefetch("loans", queryset=Loan.objects.open(), to_attr="open_loans"))
         .order_by("asset_number")
     )
+    items = list(items)
+    signals = signal_states([item.pk for item in items], now)
     rows = []
     for item in items:
         loan = item.open_loans[0] if item.open_loans else None
@@ -91,7 +95,7 @@ def feed_data():
             "location": item.location,
             "last_seen": item.location_updated_at.isoformat(),
             "last_seen_text": ago(item.location_updated_at, now),
-            "signal": None,  # 슬라이스 5(연결 끊김) 자리
+            "signal": signals.get(item.pk),  # "ok" / "disconnected" / None(브리지가 본 적 없음)
         })
 
     next_patient = None
@@ -107,7 +111,9 @@ def feed_data():
             }
 
     events = []
-    for log in LocationLog.objects.select_related("equipment").order_by("-recorded_at", "-pk")[:8]:
+    # 시뮬레이터 하트비트는 로그에는 남기지만 최근 이벤트 목록은 덮지 않게 뺀다.
+    logs = LocationLog.objects.exclude(raw_payload__heartbeat=True).select_related("equipment")
+    for log in logs.order_by("-recorded_at", "-pk")[:8]:
         events.append({
             "time": log.recorded_at.isoformat(),
             "ago": ago(log.recorded_at, now),
@@ -120,7 +126,7 @@ def feed_data():
         "stats": {
             "waiting": WaitlistEntry.objects.filter(status=WaitlistEntry.Status.WAITING).count(),
             "overdue": Loan.objects.overdue().count(),
-            "needs_locating": 0,  # 슬라이스 5에서 연결 끊김 수로 채운다
+            "needs_locating": sum(1 for state in signals.values() if state == "disconnected"),
             "available": Equipment.objects.filter(status=Equipment.Status.AVAILABLE).count(),
         },
         "items": rows,
@@ -144,7 +150,8 @@ def simulator(request):
     """시연용 블루투스 신호 시뮬레이터. 버튼은 fetch로 POST하고, 브리지와 같은 record_location을 부른다."""
     if request.method != "POST":
         moves = [{"asset": a, "location": loc, "label": f"{a} \u2192 {loc}"} for a, loc in pitch_demo.MOVES]
-        return render(request, "equipment/simulator.html", {"moves": moves})
+        return render(request, "equipment/simulator.html", {
+            "moves": moves, "cuts": pitch_demo.CUTS, "heartbeat_ms": settings.BT_HEARTBEAT_SECONDS * 1000})
     try:
         data = json.loads(request.body or "{}")
     except json.JSONDecodeError:
@@ -161,4 +168,17 @@ def simulator(request):
             return JsonResponse({"ok": False, "error": "No Bluetooth tag on that item, or no location."}, status=400)
         record_location(tag.equipment, location=location, tag=tag, payload={"simulated": True, **data})
         return JsonResponse({"ok": True, "message": f"{tag.equipment.asset_number} seen at {location}."})
+    if action == "heartbeat":
+        # 브리지가 계속 보고 있다는 신호: 이미 브리지가 본 적 있는 장비를 현재 위치 그대로 다시 기록한다(끊은 장비는 제외).
+        exclude = {str(a) for a in data.get("exclude", []) or []}
+        tags = (Tag.objects.filter(tag_type=Tag.TagType.BLUETOOTH, is_active=True, equipment__isnull=False,
+                                   equipment__location_logs__source=LocationLog.Source.MICROBIT)
+                .exclude(equipment__asset_number__in=exclude).select_related("equipment").distinct()
+                .order_by("equipment__asset_number"))
+        beat = []
+        for tag in tags:
+            item = Equipment.objects.get(pk=tag.equipment_id)  # 방금 바뀐 위치(예: 반납 지점)를 그대로 유지
+            record_location(item, location=item.location, tag=tag, payload={"simulated": True, "heartbeat": True})
+            beat.append(item.asset_number)
+        return JsonResponse({"ok": True, "assets": beat, "message": "Heartbeat: " + (", ".join(beat) or "none")})
     return JsonResponse({"ok": False, "error": "Unknown action."}, status=400)

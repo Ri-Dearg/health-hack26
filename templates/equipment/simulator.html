@@ -32,10 +32,17 @@
     <button type="button" data-action="move" data-asset="{{ m.asset }}" data-location="{{ m.location }}">{{ m.label }}</button>
   {% endfor %}
 
+  <h2>Signal</h2>
+  {% for asset in cuts %}
+    <button type="button" class="cut" data-action="cut" data-asset="{{ asset }}">Cut signal: {{ asset }}</button>
+    <button type="button" class="restore" data-action="restore" data-asset="{{ asset }}">Restore signal: {{ asset }}</button>
+  {% endfor %}
+
   <h2>Demo</h2>
   <button type="button" class="reset" data-action="reset">Reset demo</button>
 
   <div id="status" role="status"></div>
+  <p class="muted" id="heartbeat">Bridges: starting…</p>
 
 <script>
 (function () {
@@ -59,11 +66,32 @@
     });
   }
 
+  // 하트비트: 이 페이지가 열려 있는 동안 브리지가 장비를 계속 보고 있다고 알린다. 끊은 장비는 뺀다.
+  var HEARTBEAT_MS = {{ heartbeat_ms }};
+  var cut = {};
+  var heartbeatBox = document.getElementById("heartbeat");
+
+  function heartbeat() {
+    var exclude = Object.keys(cut);
+    return send({ action: "heartbeat", exclude: exclude })
+      .then(function (data) {
+        heartbeatBox.textContent = data.ok
+          ? "Bridges online · seeing " + (data.assets.join(", ") || "nothing") + (exclude.length ? " · cut: " + exclude.join(", ") : "")
+          : "Bridges: " + data.error;
+      })
+      .catch(function () { heartbeatBox.textContent = "Bridges: cannot reach the server"; });
+  }
+  heartbeat();
+  setInterval(heartbeat, HEARTBEAT_MS);
+
   document.addEventListener("click", function (e) {
     var b = e.target.closest("button[data-action]");
     if (!b) return;
     var action = b.dataset.action;
+    if (action === "cut") { cut[b.dataset.asset] = true; show("Signal cut: " + b.dataset.asset + ". It turns red on the dashboard shortly."); heartbeat(); return; }
+    if (action === "restore") { delete cut[b.dataset.asset]; show("Signal restored: " + b.dataset.asset + "."); heartbeat(); return; }
     if (action === "reset" && !confirm("Reset the demo data to the start state?")) return;
+    if (action === "reset") cut = {};
     var body = { action: action };
     if (b.dataset.asset) body.asset = b.dataset.asset;
     if (b.dataset.location) body.location = b.dataset.location;
