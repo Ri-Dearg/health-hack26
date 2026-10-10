@@ -96,7 +96,17 @@ The import also warns about identifiers shared by two items (D11 and D12 have th
 - **QR codes or NFC tag URLs** open `/item/<tag-id or asset number>/` (staff log in once). Choose loan (MRN, ward, bed), return, or location check, then confirm.
 - **Both** go through `apply_action`, which locks the item and checks it against the latest record. If the item is already in the requested state, that shows as "already completed". If it changed to something else since the page loaded, it's a "conflict": nothing changes and the latest details are shown.
 
-Not built yet: card tap linking a read to a staff member, grouped QR items, and a live dashboard.
+Not built yet: card tap linking a read to a staff member, and grouped QR items. The live dashboard is under "Pitch demo" below.
+
+## Pitch demo (live tracking)
+
+`reset_pitch_demo` loads the pitch start state on top of `seed_demo` (D27 available, D12 on loan, a wheelchair waitlist). Then:
+- `/dashboard/`: big-screen view, refreshes every 1.5 s
+- `/demo/simulator/`: pretend Bluetooth bridges (move D27, cut/restore D12's signal, reset). Keep it open; it sends heartbeats
+- `/item/D27/`: the NFC card URL. One button per status; a return records "Return Point" and shows the next patient
+- `POST /api/bridge-read/` `{"tag", "location", "seen_at"?}`: location only, never changes loan status (unlike `/api/tag-read/`)
+
+Steps, settings (`BT_DISCONNECT_SECONDS`, `BT_HEARTBEAT_SECONDS`) and the checklist: `docs/pitch-demo.md`.
 
 ## Devices on localhost (demo)
 
