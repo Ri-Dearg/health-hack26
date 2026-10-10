@@ -10,6 +10,7 @@ urlpatterns = [
     path("api/bridge-read/", live_views.bridge_read, name="bridge_read"),
     path("dashboard/", live_views.dashboard, name="dashboard"),
     path("dashboard/feed/", live_views.dashboard_feed, name="dashboard_feed"),
+    path("demo/simulator/", live_views.simulator, name="simulator"),
     path("item/<str:code>/", views.item_page, name="item_page"),
     path("", RedirectView.as_view(url="/admin/", permanent=False)),
 ]

@@ -3,6 +3,7 @@
 import json
 
 from django.conf import settings
+from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import login_required
 from django.db.models import Prefetch
 from django.http import JsonResponse
@@ -12,7 +13,7 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from . import services
+from . import pitch_demo, services
 from .location import active_tag, record_location
 from .models import Equipment, Loan, LocationLog, Tag, WaitlistEntry
 
@@ -136,3 +137,28 @@ def dashboard(request):
 @login_required
 def dashboard_feed(request):
     return JsonResponse(feed_data())
+
+
+@staff_member_required
+def simulator(request):
+    """시연용 블루투스 신호 시뮬레이터. 버튼은 fetch로 POST하고, 브리지와 같은 record_location을 부른다."""
+    if request.method != "POST":
+        moves = [{"asset": a, "location": loc, "label": f"{a} \u2192 {loc}"} for a, loc in pitch_demo.MOVES]
+        return render(request, "equipment/simulator.html", {"moves": moves})
+    try:
+        data = json.loads(request.body or "{}")
+    except json.JSONDecodeError:
+        return JsonResponse({"ok": False, "error": "body must be JSON"}, status=400)
+    action = data.get("action") if isinstance(data, dict) else None
+    if action == "reset":
+        pitch_demo.reset()
+        return JsonResponse({"ok": True, "message": "Demo reset."})
+    if action == "move":
+        tag = Tag.objects.filter(equipment__asset_number=str(data.get("asset", "")), tag_type=Tag.TagType.BLUETOOTH,
+                                 is_active=True).select_related("equipment").first()
+        location = str(data.get("location", ""))[:100]
+        if not tag or not location:
+            return JsonResponse({"ok": False, "error": "No Bluetooth tag on that item, or no location."}, status=400)
+        record_location(tag.equipment, location=location, tag=tag, payload={"simulated": True, **data})
+        return JsonResponse({"ok": True, "message": f"{tag.equipment.asset_number} seen at {location}."})
+    return JsonResponse({"ok": False, "error": "Unknown action."}, status=400)
