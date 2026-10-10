@@ -4,38 +4,111 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ item.asset_number }} · OT equipment</title>
 <style>
-  body { font: 18px/1.4 system-ui, sans-serif; margin: 0 auto; max-width: 30rem; padding: 1rem; background: #fff; color: #111; }
-  h1 { margin: 0 0 .25rem; } .muted { color: #555; }
-  .status { font-size: 1.3rem; font-weight: 600; margin: .75rem 0; }
-  .result { padding: .75rem; border: 2px solid #111; border-radius: .5rem; margin: 1rem 0; }
-  form { border-top: 1px solid #ccc; padding-top: 1rem; margin-top: 1rem; }
-  label { display: block; margin: .5rem 0 .2rem; }
-  input { font: inherit; width: 100%; padding: .5rem; box-sizing: border-box; }
-  button { font: inherit; width: 100%; padding: .9rem; margin-top: .75rem; border-radius: .5rem; border: 2px solid #111; background: #111; color: #fff; }
-  button.secondary { background: #fff; color: #111; }
+  :root { --ink: #0f172a; --muted: #5b6474; --line: #dde2ea; --blue: #1d4ed8; --green: #15803d; --green-bg: #dcfce7;
+          --blue-bg: #dbeafe; --amber: #b45309; --amber-bg: #fef3c7; --red: #b91c1c; --red-bg: #fee2e2; }
+  * { box-sizing: border-box; }
+  body { font: 19px/1.4 system-ui, -apple-system, sans-serif; margin: 0 auto; max-width: 30rem; padding: 1rem 1rem 2rem;
+         background: #fff; color: var(--ink); }
+  h1 { margin: 0; font-size: 2.4rem; letter-spacing: -.01em; }
+  .muted { color: var(--muted); }
+  .chip { display: inline-block; padding: .2rem .8rem; border-radius: 999px; font-weight: 700; margin: .6rem 0 .3rem; }
+  .chip.available { color: var(--green); background: var(--green-bg); }
+  .chip.on_loan { color: var(--blue); background: var(--blue-bg); }
+  .chip.awaiting_repair, .chip.allocated { color: var(--amber); background: var(--amber-bg); }
+  .chip.missing { color: var(--red); background: var(--red-bg); }
+  .facts div { margin: .15rem 0; }
+  .done { margin: 1.2rem 0; padding: 1.1rem; border-radius: .8rem; border: 3px solid var(--ink); }
+  .done.loan, .done.return { border-color: var(--green); }
+  .done.conflict, .done.needs_review, .done.unknown_tag { border-color: var(--red); }
+  .big { font-size: 1.6rem; font-weight: 750; line-height: 1.25; margin: 0 0 .4rem; }
+  .next { margin-top: .9rem; padding: .9rem; border-radius: .6rem; background: var(--green-bg); color: var(--green);
+          font-size: 1.35rem; font-weight: 800; }
+  .back { display: block; text-align: center; margin-top: 1rem; padding: .9rem; border-radius: .6rem; border: 2px solid var(--ink);
+          color: var(--ink); text-decoration: none; font-weight: 700; }
+  form { margin-top: 1.2rem; }
+  label { display: block; margin: .6rem 0 .25rem; font-weight: 600; }
+  input { font: inherit; font-size: 1.4rem; width: 100%; padding: .6rem .7rem; border: 2px solid var(--line); border-radius: .5rem; }
+  button { font: inherit; font-size: 1.35rem; font-weight: 800; width: 100%; padding: 1.1rem; margin-top: 1rem; border-radius: .7rem;
+           border: 0; background: var(--blue); color: #fff; }
+  button.return { background: var(--green); }
+  button.secondary { font-size: 1rem; font-weight: 600; padding: .7rem; background: #fff; color: var(--ink); border: 2px solid var(--ink); }
+  button:disabled { opacity: .55; }
+  details { margin-top: 1rem; color: var(--muted); }
+  details summary { cursor: pointer; padding: .3rem 0; }
+  details input { font-size: 1.1rem; }
 </style>
 </head>
 <body>
   <h1>{{ item.asset_number }}</h1>
   <div class="muted">{{ item.category }}{% if item.description %} · {{ item.description }}{% endif %}</div>
-  <div class="status">Status: {{ item.get_status_display }}{% if item.flagged %} · 🚩 flagged{% endif %}</div>
-  <div>Location: {{ item.location }} <span class="muted">({{ item.location_updated_at|timesince }} ago)</span></div>
-  {% if loan %}<div>Due back {{ loan.due_at|date:"j M" }}{% if loan.patient %} · MRN {{ loan.patient }}{% endif %}{% if loan.needs_owner %} · ⚠️ needs an owner{% endif %}</div>{% endif %}
+  <span class="chip {{ item.status }}">{{ item.get_status_display }}</span>{% if item.flagged %} <span class="muted">· flagged</span>{% endif %}
+  <div class="facts">
+    <div>Location: <strong>{{ item.location }}</strong> <span class="muted">({{ item.location_updated_at|timesince }} ago)</span></div>
+    {% if loan %}<div>{% if loan.patient %}MRN {{ loan.patient }} · {% endif %}Due {{ loan.due_at|date:"j M" }}{% if loan.needs_owner %} · needs an owner{% endif %}</div>{% endif %}
+  </div>
 
-  {% if result %}<div class="result" role="status">{{ result.message }}</div>{% endif %}
-
-  <form method="post">{% csrf_token %}
-    <input type="hidden" name="expected_status" value="{{ item.status }}">
+  {% if result %}
+    <div class="done {{ result.outcome }}" role="status">
+      {% if result.outcome == "loan" %}
+        <p class="big">Issued{% if loan.patient %} to MRN {{ loan.patient }}{% endif %} · Due {{ loan.due_at|date:"j M" }}</p>
+      {% elif result.outcome == "return" %}
+        <p class="big">Returned · {{ item.asset_number }} is at {{ item.location }}</p>
+        {% if next_entry %}
+          <div class="next">Next patient: MRN {{ next_entry.patient.mrn }} ({{ next_entry.get_priority_display }}){% if next_entry.ward %} · {{ next_entry.ward }}{% endif %}</div>
+        {% else %}
+          <div class="muted">No one is waiting for a {{ item.category|lower }}.</div>
+        {% endif %}
+      {% elif result.outcome == "already_done" %}
+        {% if loan %}
+          <p class="big">Already on loan{% if loan.patient %} to MRN {{ loan.patient }}{% endif %} · Due {{ loan.due_at|date:"j M" }}</p>
+        {% else %}
+          <p class="big">Already returned · {{ item.asset_number }} is {{ item.get_status_display|lower }}</p>
+        {% endif %}
+      {% else %}
+        <p class="big">{{ result.message }}</p>
+      {% endif %}
+      {% if result.outcome == "loan" or result.outcome == "return" %}<div class="muted">{{ result.message }}</div>{% endif %}
+      <a class="back" href="{{ request.path }}">Done</a>
+    </div>
+  {% else %}
     {% if item.status == "available" %}
-      <label for="mrn">Patient MRN (no names)</label><input id="mrn" name="mrn" autocomplete="off">
-      <label for="ward">Ward</label><input id="ward" name="ward">
-      <label for="bed">Bed</label><input id="bed" name="bed">
-      <button name="action" value="loan">Loan to this patient</button>
+      <form method="post">{% csrf_token %}
+        <input type="hidden" name="expected_status" value="{{ item.status }}">
+        <input type="hidden" name="action" value="loan">
+        <label for="mrn">Patient MRN (no names)</label>
+        <input id="mrn" name="mrn" inputmode="numeric" autocomplete="off" required>
+        <details>
+          <summary>Ward and bed (optional)</summary>
+          <label for="ward">Ward</label><input id="ward" name="ward">
+          <label for="bed">Bed</label><input id="bed" name="bed">
+        </details>
+        <button type="submit">Loan to this patient</button>
+      </form>
     {% elif item.status == "on_loan" %}
-      <button name="action" value="return">Return to store</button>
+      <form method="post">{% csrf_token %}
+        <input type="hidden" name="expected_status" value="{{ item.status }}">
+        <input type="hidden" name="action" value="return">
+        <button type="submit" class="return">Return to store</button>
+      </form>
+    {% else %}
+      <p class="muted">Nothing to do from this page while the item is {{ item.get_status_display|lower }}. Ask the OT office.</p>
     {% endif %}
-    <label for="location">Where is it now?</label><input id="location" name="location" placeholder="e.g. Ward 3C">
-    <button class="secondary" name="action" value="location">Location check only</button>
-  </form>
+
+    <details>
+      <summary>Location check</summary>
+      <form method="post">{% csrf_token %}
+        <input type="hidden" name="expected_status" value="{{ item.status }}">
+        <input type="hidden" name="action" value="location">
+        <label for="location">Where is it now?</label><input id="location" name="location" placeholder="e.g. Ward 3C">
+        <button type="submit" class="secondary">Location check only</button>
+      </form>
+    </details>
+  {% endif %}
+<script>
+  // 두 번 누르기 방지: 제출하면 버튼을 잠근다 (서버도 already_done으로 막는다).
+  document.querySelectorAll("form").forEach(function (f) {
+    f.addEventListener("submit", function () { var b = f.querySelector("button"); if (b) b.disabled = true; });
+  });
+</script>
 </body>
 </html>
