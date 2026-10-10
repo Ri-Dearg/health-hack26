@@ -9,8 +9,10 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from . import services
 from .events import apply_action, handle_tag_read
-from .models import Equipment, LocationLog
+from .location import RETURN_POINT, record_location
+from .models import Equipment, LocationLog, TagEvent
 
 
 @csrf_exempt
@@ -47,7 +49,7 @@ def item_page(request, code):
         "category", "pool").first()
     if not item:
         raise Http404("No item with that tag or asset number")
-    result = None
+    result = next_entry = None
     if request.method == "POST":
         result = apply_action(
             item, request.POST.get("action", ""), expected_status=request.POST.get("expected_status", ""),
@@ -55,5 +57,11 @@ def item_page(request, code):
             bed=request.POST.get("bed", ""), location=request.POST.get("location", ""),
             source=LocationLog.Source.PHONE, tag_uid=code,
         )
+        if result.outcome == TagEvent.Outcome.RETURN:
+            # 반납 = 반납 지점에 놓였다는 뜻. 위치 규칙은 location.record_location 하나만 쓴다.
+            record_location(item, location=RETURN_POINT, source=LocationLog.Source.PHONE, staff=request.user)
+            next_entry = services.next_on_waitlist(item.category)
         item.refresh_from_db()
-    return render(request, "equipment/item.html", {"item": item, "loan": item.open_loan, "result": result})
+    return render(request, "equipment/item.html", {
+        "item": item, "loan": item.open_loan, "result": result, "next_entry": next_entry,
+    })
