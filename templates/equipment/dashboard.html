@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Live equipment · OT</title>
+<style>
+  :root {
+    --bg: #f3f5f8; --card: #fff; --ink: #0f172a; --muted: #5b6474; --line: #dde2ea;
+    --green: #15803d; --green-bg: #dcfce7; --blue: #1d4ed8; --blue-bg: #dbeafe;
+    --amber: #b45309; --amber-bg: #fef3c7; --red: #b91c1c; --red-bg: #fee2e2;
+    --purple: #6d28d9; --purple-bg: #ede9fe; --flash: #fde68a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 22px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: baseline; justify-content: space-between; padding: 1.2rem 2rem .6rem; }
+  h1 { margin: 0; font-size: 2rem; letter-spacing: -.01em; }
+  .live { color: var(--muted); font-size: 1rem; }
+  .live .dot { display: inline-block; width: .7rem; height: .7rem; border-radius: 50%; background: var(--green); margin-right: .4rem; }
+  .live.lost .dot { background: var(--red); }
+  main { padding: 0 2rem 2rem; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.2rem; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: .9rem; padding: 1rem 1.3rem; }
+  .stat .n { font-size: 3.4rem; font-weight: 750; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .stat .label { color: var(--muted); font-size: 1.05rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .stat.warn .n { color: var(--red); }
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1.2rem; align-items: start; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: .9rem; padding: 1rem 1.3rem; }
+  .panel h2 { margin: 0 0 .6rem; font-size: 1.05rem; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: .9rem; color: var(--muted); font-weight: 600; padding: .3rem .6rem; border-bottom: 2px solid var(--line); }
+  td { padding: .7rem .6rem; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  td.asset { font-weight: 750; font-size: 1.5rem; }
+  td.loc { font-weight: 600; }
+  td.seen { color: var(--muted); white-space: nowrap; }
+  tr { transition: background-color 1.2s ease; }
+  tr.flash { background: var(--flash); transition: none; }
+  .chip { display: inline-block; padding: .2rem .75rem; border-radius: 999px; font-weight: 700; font-size: 1rem; white-space: nowrap; }
+  .chip.available { color: var(--green); background: var(--green-bg); }
+  .chip.on_loan { color: var(--blue); background: var(--blue-bg); }
+  .chip.awaiting_repair { color: var(--amber); background: var(--amber-bg); }
+  .chip.missing, .chip.overdue, .chip.disconnected { color: var(--red); background: var(--red-bg); }
+  .chip.allocated { color: var(--purple); background: var(--purple-bg); }
+  .next { border: 3px solid var(--line); }
+  .next.on { border-color: var(--green); background: var(--green-bg); }
+  .next .who { font-size: 2.2rem; font-weight: 800; margin: .2rem 0; }
+  .next .why { font-size: 1.15rem; }
+  .next .empty { color: var(--muted); }
+  .side { display: grid; gap: 1.2rem; }
+  ul.events { list-style: none; margin: 0; padding: 0; }
+  ul.events li { padding: .45rem 0; border-bottom: 1px solid var(--line); font-size: 1.05rem; }
+  ul.events li:last-child { border-bottom: 0; }
+  ul.events .meta { color: var(--muted); font-size: .9rem; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } .stats { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>OT equipment · live</h1>
+  <div class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></div>
+</header>
+<main>
+  <section class="stats">
+    <div class="stat"><div class="n" id="s-waiting">–</div><div class="label">Patients waiting</div></div>
+    <div class="stat" id="c-overdue"><div class="n" id="s-overdue">–</div><div class="label">Overdue loans</div></div>
+    <div class="stat" id="c-locating"><div class="n" id="s-locating">–</div><div class="label">Needs locating</div></div>
+    <div class="stat"><div class="n" id="s-available">–</div><div class="label">Available now</div></div>
+  </section>
+  <div class="grid">
+    <section class="panel">
+      <h2>Bluetooth-tagged equipment</h2>
+      <table>
+        <thead><tr><th>Asset</th><th>Type</th><th>Status</th><th>Location</th><th>Last seen</th><th>Signal</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </section>
+    <div class="side">
+      <section class="panel next" id="next">
+        <h2>Next patient</h2>
+        <div id="next-body"><div class="empty">Waiting for a return.</div></div>
+      </section>
+      <section class="panel">
+        <h2>Recent events</h2>
+        <ul class="events" id="events"></ul>
+      </section>
+    </div>
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  var FEED = "{% url 'dashboard_feed' %}";
+  var POLL_MS = 1500;
+  var previous = {};  // asset_number -> 마지막으로 그린 값(바뀐 행만 깜빡이게)
+  var firstDraw = true;
+
+  function el(tag, cls, text) {
+    var node = document.createElement(tag);
+    if (cls) node.className = cls;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function chip(cls, text) { return el("span", "chip " + cls, text); }
+
+  function drawRows(items) {
+    var body = document.getElementById("rows");
+    var seen = {};
+    items.forEach(function (it) {
+      var key = it.asset_number;
+      seen[key] = true;
+      var sig = [it.status, it.overdue, it.location, it.signal].join("|");
+      var row = document.getElementById("row-" + key);
+      if (!row) {
+        row = el("tr");
+        row.id = "row-" + key;
+        body.appendChild(row);
+      }
+      row.replaceChildren();
+      row.appendChild(el("td", "asset", it.asset_number));
+      row.appendChild(el("td", null, it.category));
+      var status = el("td");
+      status.appendChild(chip(it.status, it.status_label));
+      if (it.overdue) { status.appendChild(document.createTextNode(" ")); status.appendChild(chip("overdue", "Overdue")); }
+      row.appendChild(status);
+      row.appendChild(el("td", "loc", it.location));
+      row.appendChild(el("td", "seen", it.last_seen_text));
+      var signal = el("td");
+      if (it.signal === "disconnected") signal.appendChild(chip("disconnected", "Disconnected"));
+      else if (it.signal === "ok") signal.appendChild(el("span", "seen", "Connected"));
+      row.appendChild(signal);
+      if (!firstDraw && previous[key] !== undefined && previous[key] !== sig) {
+        row.classList.remove("flash");
+        void row.offsetWidth;  // 애니메이션 재시작
+        row.classList.add("flash");
+        setTimeout(function () { row.classList.remove("flash"); }, 900);
+      }
+      previous[key] = sig;
+    });
+    Array.prototype.slice.call(body.children).forEach(function (row) {
+      if (!seen[row.id.slice(4)]) row.remove();
+    });
+  }
+
+  function drawNext(next) {
+    var box = document.getElementById("next");
+    var body = document.getElementById("next-body");
+    body.replaceChildren();
+    if (!next) {
+      box.classList.remove("on");
+      body.appendChild(el("div", "empty", "Waiting for a return."));
+      return;
+    }
+    box.classList.add("on");
+    body.appendChild(el("div", "who", "MRN " + next.mrn));
+    body.appendChild(el("div", "why", next.priority + (next.ward ? " · " + next.ward : "")));
+    body.appendChild(el("div", "why", next.asset_number + " is free at " + next.location + "."));
+  }
+
+  function drawEvents(events) {
+    var list = document.getElementById("events");
+    list.replaceChildren();
+    if (!events.length) list.appendChild(el("li", "meta", "No events yet."));
+    events.forEach(function (ev) {
+      var li = el("li", null, ev.text);
+      li.appendChild(el("div", "meta", ev.ago + " · " + ev.source));
+      list.appendChild(li);
+    });
+  }
+
+  function draw(data) {
+    document.getElementById("s-waiting").textContent = data.stats.waiting;
+    document.getElementById("s-overdue").textContent = data.stats.overdue;
+    document.getElementById("s-locating").textContent = data.stats.needs_locating;
+    document.getElementById("s-available").textContent = data.stats.available;
+    document.getElementById("c-overdue").classList.toggle("warn", data.stats.overdue > 0);
+    document.getElementById("c-locating").classList.toggle("warn", data.stats.needs_locating > 0);
+    drawRows(data.items);
+    drawNext(data.next_patient);
+    drawEvents(data.events);
+    firstDraw = false;
+  }
+
+  function setLive(ok) {
+    document.getElementById("live").classList.toggle("lost", !ok);
+    document.getElementById("live-text").textContent = ok
+      ? "Live · updated " + new Date().toLocaleTimeString()
+      : "Connection lost · retrying";
+  }
+
+  function poll() {
+    fetch(FEED, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function (data) { draw(data); setLive(true); })
+      .catch(function () { setLive(false); })
+      .finally(function () { setTimeout(poll, POLL_MS); });
+  }
+  poll();
+})();
+</script>
+</body>
+</html>
