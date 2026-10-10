@@ -138,3 +138,12 @@ class EquipmentFormTests(TestCase):
         self.assertTrue(EquipmentForm(data=self.data, instance=item).is_valid())
         Equipment.objects.create(asset_number="N2", category_id=self.data["category"], barcode="OT1")
         self.assertIn("barcode", EquipmentForm(data=self.data | {"barcode": "OT1"}, instance=item).errors)
+
+
+class SeedDemoTests(TestCase):
+    def test_if_empty_is_safe_to_repeat_and_demo_staff_cannot_log_in_off_debug(self):
+        from django.core.management import call_command
+        call_command("seed_demo", stdout=open("/dev/null", "w"))
+        call_command("seed_demo", if_empty=True, stdout=open("/dev/null", "w"))  # no error, nothing duplicated
+        self.assertEqual(Equipment.objects.count(), 20)
+        self.assertFalse(Staff.objects.get(username="aoife").has_usable_password())  # tests run with DEBUG off
