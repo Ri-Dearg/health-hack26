@@ -4,7 +4,11 @@
 기존 /api/tag-read/ 의 방향 추론(events.py)과는 별개 경로다.
 """
 
+from datetime import timedelta
+
+from django.conf import settings
 from django.db import transaction
+from django.db.models import Max
 from django.utils import timezone
 
 from .models import Equipment, LocationLog, Tag
@@ -34,3 +38,15 @@ def record_location(equipment, *, location, tag=None, source=LocationLog.Source.
         equipment=item, tag=tag, event=LocationLog.Event.SEEN, location=location, source=source,
         rssi=rssi, recorded_by=staff, recorded_at=seen_at, raw_payload=payload,
     )
+
+
+def signal_states(equipment_ids, now=None):
+    """브리지(블루투스) 신호 상태: {장비 id: "ok" | "disconnected"}.
+
+    마지막 브리지 신호가 BT_DISCONNECT_SECONDS보다 오래되면 disconnected. 브리지가 한 번도 본 적 없는 장비는 빠진다.
+    마이그레이션 없이 LocationLog에서 계산한다.
+    """
+    cutoff = (now or timezone.now()) - timedelta(seconds=getattr(settings, "BT_DISCONNECT_SECONDS", 10))
+    last = (LocationLog.objects.filter(equipment_id__in=equipment_ids, source=LocationLog.Source.MICROBIT)
+            .values("equipment_id").annotate(last=Max("recorded_at")).values_list("equipment_id", "last"))
+    return {pk: "ok" if seen >= cutoff else "disconnected" for pk, seen in last}

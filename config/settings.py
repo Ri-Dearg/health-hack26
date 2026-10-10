@@ -125,6 +125,9 @@ LOGIN_URL = "admin:login"
 TAG_REPEAT_SECONDS = int(os.environ.get("TAG_REPEAT_SECONDS", 60))
 # If set, readers must send it as the X-Device-Token header to /api/tag-read/.
 DEVICE_TOKEN = os.environ.get("DEVICE_TOKEN", "")
+# 블루투스 브리지: 마지막 신호가 이 초보다 오래되면 대시보드에 Disconnected. 시뮬레이터는 이 간격(초)으로 하트비트를 보낸다.
+BT_DISCONNECT_SECONDS = int(os.environ.get("BT_DISCONNECT_SECONDS", 10))
+BT_HEARTBEAT_SECONDS = int(os.environ.get("BT_HEARTBEAT_SECONDS", 3))
 
 
 # python.org's macOS Python ships without CA certificates, so TLS to smtp.gmail.com fails with
