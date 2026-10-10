@@ -1,6 +1,9 @@
 """Invented demo data only. No real patients or staff."""
 
+import os
 from datetime import timedelta
+
+from django.conf import settings
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -26,6 +29,18 @@ CATEGORIES = {
     "Sliding board": ("SLB", 2, Tag.TagType.QR),
 }
 WARDS = ["Ward 1A", "Ward 2B", "Ward 3C", "Ward 4D", "AMU"]
+# Invented register details per category: Type (make and model), Size (WxDxH), Max Wgt.
+DETAILS = {
+    "WCS": ("Tilt-in-space chair", '17"', "135kg"),
+    "WCM": ("Self-propelled chair", '18" x 17"', "125kg"),
+    "WCB": ("Bariatric chair", '24-25"', "180kg"),
+    "CSA": ("Air cell cushion", '18" x 18" x 4"', "N/A"),
+    "CSG": ("Gel and foam cushion", '18" x 18"', "130kg"),
+    "ELR": ("Elevating leg rest (pair)", "Adjustable", "135kg"),
+    "HDR": ("Contoured headrest", "Medium", ""),
+    "RLB": ("Residual limb board", '16"', "135kg"),
+    "SLB": ("Sliding board", "70cm", "150kg"),
+}
 
 
 class Command(BaseCommand):
@@ -33,10 +48,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true", help="Delete existing equipment data first.")
+        parser.add_argument("--if-empty", action="store_true",
+                            help="Do nothing if equipment already exists. Safe to run on every deploy.")
 
     @transaction.atomic
-    def handle(self, *args, reset=False, **options):
+    def handle(self, *args, reset=False, if_empty=False, **options):
         if Equipment.objects.exists() and not reset:
+            if if_empty:
+                self.stdout.write("Equipment already exists: demo data not loaded.")
+                return
             raise CommandError("Equipment already exists. Use --reset to wipe and reload the demo data.")
         if reset:
             for model in (LocationLog, WaitlistEntry, Tag, Loan, Equipment, Patient, Category):
@@ -45,6 +65,9 @@ class Command(BaseCommand):
         call_command("setup_roles")
         ot_staff = Group.objects.get(name="OT staff")
 
+        # The repo is public, so the known demo password only applies locally (DEBUG).
+        # Elsewhere demo staff can't log in unless DEMO_STAFF_PASSWORD is set.
+        password = os.environ.get("DEMO_STAFF_PASSWORD") or ("demo-pass-123" if settings.DEBUG else "")
         staff = []
         for username, first, last, number in [
             ("aoife", "Aoife", "Byrne", "OT1001"),
@@ -57,20 +80,31 @@ class Command(BaseCommand):
                           "email": f"{username}@example.com", "is_staff": True},
             )
             if created:
-                person.set_password("demo-pass-123")
+                if password:
+                    person.set_password(password)
+                else:
+                    person.set_unusable_password()
                 person.set_card_id(f"CARD-{number}")
                 person.save()
             person.groups.add(ot_staff)
             staff.append(person)
 
-        items = []
+        items, today = [], timezone.localdate()
         for name, (prefix, count, tag_type) in CATEGORIES.items():
             category = Category.objects.create(name=name)
+            kind, size, max_weight = DETAILS[prefix]
+            cushion = prefix.startswith("CS")
             for i in range(1, count + 1):
+                n = len(items) + 1
                 item = Equipment.objects.create(
                     asset_number=f"{prefix}-{i:03d}", category=category,
-                    serial_number=f"SN{prefix}{i:04d}" if i % 2 else "",
-                    purchase_date=timezone.now().date() - timedelta(days=400 * i),
+                    on_assettrak=i % 2 == 1, description=kind, size=size, max_weight=max_weight,
+                    serial_number=f"SN{prefix}{i:04d}" if i % 2 else "",  # not every item has one
+                    hc21_number=f"{9000000 + n}", dml_number=f"{500000 + n}", barcode=f"OT{n:05d}",
+                    replacement_cover=(i != 2) if cushion else None,
+                    comments="New cushion cover" if cushion and i == 1 else "",
+                    last_service_date=today - timedelta(days=45 * i),
+                    purchase_date=today - timedelta(days=400 * i),
                 )
                 Tag.objects.create(uid=f"{tag_type.upper()}-{prefix}-{i:03d}", tag_type=tag_type, equipment=item)
                 items.append(item)
@@ -100,5 +134,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"Loaded {len(items)} items in {len(CATEGORIES)} categories, 3 loans, 3 waitlist entries. "
-            "Demo staff: aoife / ciaran / niamh (password demo-pass-123)."
+            "Demo staff: aoife / ciaran / niamh "
+            + ("(password demo-pass-123)." if password == "demo-pass-123" else
+               "(password from DEMO_STAFF_PASSWORD)." if password else "(can't log in: DEMO_STAFF_PASSWORD not set).")
         ))

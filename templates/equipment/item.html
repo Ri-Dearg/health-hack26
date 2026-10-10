@@ -36,6 +36,8 @@
   details { margin-top: 1rem; color: var(--muted); }
   details summary { cursor: pointer; padding: .3rem 0; }
   details input { font-size: 1.1rem; }
+  .details { display: grid; grid-template-columns: max-content 1fr; gap: .2rem .75rem; margin: .75rem 0; }
+  .details dt { color: var(--muted); } .details dd { margin: 0; }
 </style>
 </head>
 <body>
@@ -46,6 +48,15 @@
     <div>Location: <strong>{{ item.location }}</strong> <span class="muted">({{ item.location_updated_at|timesince }} ago)</span></div>
     {% if loan %}<div>{% if loan.patient %}MRN {{ loan.patient }} · {% endif %}Due {{ loan.due_at|date:"j M" }}{% if loan.needs_owner %} · needs an owner{% endif %}</div>{% endif %}
   </div>
+  <dl class="details">
+    {% if item.description %}<dt>Type</dt><dd>{{ item.description }}</dd>{% endif %}
+    {% if item.size %}<dt>Size</dt><dd>{{ item.size }}</dd>{% endif %}
+    {% if item.max_weight %}<dt>Max Wgt</dt><dd>{{ item.max_weight }}</dd>{% endif %}
+    {% if item.replacement_cover is not None %}<dt>Replacement cover</dt><dd>{{ item.replacement_cover|yesno:"Yes,No" }}</dd>{% endif %}
+    <dt>Barcode</dt><dd>{{ item.barcode|default:"none yet" }}</dd>
+    {% if item.serial_number %}<dt>Serial No.</dt><dd>{{ item.serial_number }}</dd>{% endif %}
+    {% if item.comments %}<dt>Comments</dt><dd>{{ item.comments|linebreaksbr }}</dd>{% endif %}
+  </dl>
 
   {% if result %}
     <div class="done {{ result.outcome }}" role="status">

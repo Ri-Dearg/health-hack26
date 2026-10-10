@@ -46,24 +46,45 @@ Patient-name columns are ignored, so only the MRN is kept. Columns missing from 
 
 ### TUH's register
 
-Tested against the transcribed Wheelchair Asset Register (Asset Register and Cushion Register tabs, 74 items). The importer understands its layout:
+Every column of the register (Asset Register and Cushion Register tabs) is stored, under the register's own heading. The admin's Equipment list shows them in the register's order.
 
-| Register | In the app |
+| Register column | Stored as | Notes |
+|---|---|---|
+| Asset / AssetTrak (`AT+` / `AT-`) | Equipment: AssetTrak | *Assumed* to mean "on AssetTrak" |
+| Asset No. | Equipment: Asset No. | Unique |
+| Type | Equipment: Type | Make and model |
+| Size (WxDxH) | Equipment: Size | As written |
+| Serial No. / Serial no | Equipment: Serial No. | Optional. `SN:` prefix and `N/A` cleaned up |
+| HC21 No. | Equipment: HC21 No. | Meaning not confirmed yet |
+| DML No. | Equipment: DML No. | Meaning not confirmed yet. `DML` prefix cleaned up |
+| Max Wgt / Wgt Capacity | Equipment: Max Wgt | As written, `N/A` included |
+| Therapist | Loan: issued by | Matched to a staff account. If no match, kept as written and the loan "needs an owner" |
+| Patient Name | **Not stored** | MRN only, by design |
+| MRN | Loan: patient | |
+| Ward / Location | Equipment: Ward / Location | |
+| Updated | Equipment: Updated | When the location was last confirmed |
+| Status | Equipment: Status, plus Status on register | Status is one of the brief's five. The register's exact text is kept too (e.g. `OWWP`, `STL - Due back in October.`) |
+| Comments | Equipment: Comments | Open text, e.g. replacement cover details. Text found in a date column also lands here |
+| Last Service date | Equipment: Last Service date | |
+| Purchased in | Equipment: Purchased in | `May-26` and `2024` stored as the first day of that month or year |
+| Replacement cover | Equipment: Replacement cover | Yes or No. Blank where it doesn't apply (chairs) |
+| Grey "For the provision of clients in …" rows | Pool | e.g. "Burkitt / ARHC", "WSU / ASU only (own funding)" |
+| Yellow Asset No. / red row | Flagged / Missing | |
+
+**Barcode** isn't a column on the register we have, but the brief says the tracker has one. It's required for new items in the admin, and must be unique. Imported items without one aren't blocked: the import warns, and the Equipment list's "Has barcode: No" filter lists them.
+
+How the register's status codes map to the five statuses:
+
+| Register says | Status |
 |---|---|
-| Asset No., Type, Size (WxDxH), Serial No., HC21 No., DML No., Max Wgt, Comments, Last Service date, Purchased in, Replacement cover | Same-named fields (Type = make and model). `SN:`/`DML` prefixes and `N/A` are cleaned up |
-| AT+ / AT- (column A) | On AssetTrak yes/no (*assumed meaning*) |
-| Status `OWWP` | On loan (*assumed: on ward with patient*). No patient or therapist is recorded, so these open as loans that need an owner, dated from "Updated" |
+| `OWWP` | On loan (*assumed: on ward with patient*). No patient or therapist is recorded, so these are loans that need an owner, dated from "Updated" |
 | `STL …` | On loan, short-term (went home) |
 | `OT Dept`, `Ready for use`, a storeroom | Available |
 | `Workshop`, `WASH` | Awaiting repair (the brief has no "being cleaned" status) |
 | `Missing …`, `Awaiting reimbursement` | Missing |
-| Anything else (`With D50`, `?`, `Patrick to update Sarah`) | Kept in the notes; item flagged for someone to check |
-| Grey "For the provision of clients in …" rows | Start a pool (e.g. "Burkitt / ARHC", "WSU / ASU only (own funding)") |
-| Yellow Asset No. / red row | Flagged / missing |
-| Updated | When the item's location was last confirmed |
-| Patient Name | Ignored, never stored |
+| Anything else (`With D50`, `?`, `Patrick to update Sarah`) | Unchanged, and flagged for someone to check |
 
-The import also warns about identifiers shared by two items (D11 and D12 have the same HC21 and DML numbers in the register). The export uses the register's own headings first, so staff recognise it.
+The import also warns about identifiers shared by two items (D11 and D12 have the same HC21 and DML numbers in the register).
 
 ## Synergy (design only)
 
@@ -116,14 +137,32 @@ Steps, settings (`BT_DISCONNECT_SECONDS`, `BT_HEARTBEAT_SECONDS`) and the checkl
 
 ## Deploy on Render
 
-1. Push this folder to a GitHub repo.
-2. In Render: **New > Blueprint**, then pick the repo. `render.yaml` creates the web service and a Postgres database, and generates `SECRET_KEY`.
-3. After the first deploy, open the service's **Shell** and run `python manage.py createsuperuser` (and `seed_demo` if you want the demo data).
+Render deploys one branch of the GitHub repo. **`main` has no app code yet**, so either merge the feature branches into `main` first, or choose the newest feature branch when you set up the Blueprint.
 
-Free tier limits to plan around ([Render docs](https://render.com/docs/free)):
-- The web service sleeps after a period with no traffic and takes up to a minute to wake. **Open the site at about 08:45 before judging.**
-- The free Postgres database expires 30 days after creation. That's fine for the hackathon; export the data if you want to keep it.
-- No persistent disk, so don't use SQLite on Render. Data would vanish on every deploy.
+1. Push the branch.
+2. In Render: **New → Blueprint**, connect the GitHub repo, and choose the branch. Render reads `render.yaml` and creates:
+   - the web service `ot-equipment` (free, Frankfurt): build `./build.sh`, start `gunicorn config.wsgi:application`
+   - a free Postgres database, `ot-equipment-db`, connected as `DATABASE_URL`
+   - generated `SECRET_KEY` and `DEVICE_TOKEN` values
+3. Render asks for **`DJANGO_SUPERUSER_USERNAME`** and **`DJANGO_SUPERUSER_PASSWORD`**. That's your admin login. The free tier has no shell, so `build.sh` creates the account on the first deploy. It never changes an existing account, and it refuses a weak password.
+4. Click **Apply** and wait for the first deploy (a few minutes). Open `https://<service>.onrender.com/admin/` and log in.
+5. Data: `SEED_DEMO=1` (the default in `render.yaml`) loads the invented demo data into the empty database. To start with TUH's register instead, change `SEED_DEMO` to `0` before the first deploy, then use **Equipment → Import from Excel** in the admin.
+
+**Already created a plain web service, failing with `gunicorn app:app`?** Delete it and use the Blueprint, or fix it under **Settings**:
+- Branch: the branch with the code
+- Build Command: `./build.sh`
+- Start Command: `gunicorn config.wsgi:application`
+- Environment: `SECRET_KEY` (use Render's Generate button), `DJANGO_SUPERUSER_USERNAME`, `DJANGO_SUPERUSER_PASSWORD`, `DEVICE_TOKEN`, `SEED_DEMO`, and `DATABASE_URL` set to the **Internal Database URL** of a Render Postgres database in the same region (New → Postgres, free)
+
+Add the environment variables before the next deploy: the build stops without `SECRET_KEY`.
+
+Free tier limits ([Render docs](https://render.com/docs/free)):
+- **No shell and no one-off jobs.** All setup runs in `build.sh`.
+- **Sleeps after 15 minutes** without traffic, and takes about a minute to wake. **Open the site at about 08:45 before judging.**
+- **The free database expires 30 days after creation**, followed by a 14-day grace period before it's deleted. It holds 1 GB, and you get one free database per workspace.
+- **No outbound email (SMTP).** Leave the `EMAIL_*` variables unset on Render; emails are printed to the logs instead.
+- **Readers posting to the deployed site** must send the `DEVICE_TOKEN` value (from the Environment tab) as an `X-Device-Token` header.
+- **Demo staff** (`aoife`, `ciaran`, `niamh`) can't log in on Render unless you set `DEMO_STAFF_PASSWORD`. The local demo password is in the repo, so it isn't used there.
 
 ## Email (Gmail)
 

@@ -18,7 +18,7 @@ Register, 9 October 2026; anything marked "assumed" needs confirming with the OT
 - Status codes: OWWP (assumed "on ward with patient") = on loan; STL = short-term loan;
   OT Dept / Ready for use / a storeroom = available; Workshop = awaiting repair; WASH =
   awaiting repair (the brief has no cleaning status); Missing / Awaiting reimbursement = missing.
-  Anything else is kept in the notes and the item is flagged for a person to check.
+  Anything else is flagged for a person to check. The exact text is always kept as "Status on register".
 - Grey section rows ("For the provision of clients in Burkitt / ARHC") start a pool.
 - Row colours: yellow Asset No. = flagged; red = missing. AT+ / AT- = on AssetTrak or not (assumed).
 - "Updated" is when the row was last checked; it becomes the item's location date.
@@ -44,7 +44,7 @@ from openpyxl.utils import get_column_letter
 from accounts.models import Staff
 
 from . import services
-from .models import Category, Equipment, LocationLog, Pool, WaitlistEntry
+from .models import Category, Equipment, Loan, LocationLog, Pool, WaitlistEntry
 
 S = Equipment.Status
 
@@ -64,7 +64,7 @@ ITEM_COLUMNS = [
     ("location", "Ward / Location", 20),
     ("updated", "Updated", 11),
     ("status", "Status", 24),
-    ("notes", "Comments", 32),
+    ("comments", "Comments", 32),
     ("last_service", "Last Service date", 13),
     ("purchase_date", "Purchased in", 12),
     ("replacement_cover", "Replacement cover", 10),
@@ -121,7 +121,7 @@ ITEM_ALIASES = {
                      "service info"],
     "replacement_cover": ["replacement cover", "spare cover"],
     "flagged": ["flagged", "flag"],
-    "notes": ["comments", "comment", "notes"],
+    "comments": ["comments", "comment", "notes"],
     "fingerprint": ["row check do not edit"],
 }
 WAITLIST_ALIASES = {
@@ -287,22 +287,23 @@ def db_row(item):
         "asset_number": item.asset_number,
         "description": item.description,
         "size": item.size,
-        "serial_number": item.serial_number,
-        "hc21_number": item.hc21_number,
-        "dml_number": item.dml_number,
+        # Identifiers compare in the same cleaned-up form the importer produces ("SN: 1" = "1", "N/A" = blank).
+        "serial_number": _identifier(item.serial_number, "SN"),
+        "hc21_number": _identifier(item.hc21_number),
+        "dml_number": _identifier(item.dml_number, "DML"),
         "max_weight": item.max_weight,
-        "issued_by": str(loan.issued_by) if loan and loan.issued_by else "",
+        "issued_by": (str(loan.issued_by) if loan.issued_by else loan.issued_by_name) if loan else "",
         "mrn": loan.patient.mrn if loan and loan.patient else "",
         "location": item.location,
         "updated": timezone.localdate(item.location_updated_at).isoformat(),
         "status": item.status,
-        "notes": item.notes,
+        "comments": item.comments,
         "last_service": _date(item.last_service_date),
         "purchase_date": _date(item.purchase_date),
         "replacement_cover": _bool_text(item.replacement_cover),
         "category": item.category.name,
         "pool": item.pool.name,
-        "barcode": item.barcode,
+        "barcode": _identifier(item.barcode),
         "on_loan": "yes" if loan else "no",
         "ward": loan.ward if loan else "",
         "bed": loan.bed if loan else "",
@@ -310,6 +311,8 @@ def db_row(item):
         "due": timezone.localdate(loan.due_at).isoformat() if loan else "",
         "short_term": "yes" if loan and loan.short_term_loan else "no",
         "flagged": "yes" if item.flagged else "no",
+        # Kept from TUH's register, but not exported or fingerprinted: our export's Status column is the app's.
+        "register_status": item.register_status,
     }
 
 
@@ -461,6 +464,7 @@ def _section_pool(values, mapping):
 
 
 def _parse_item_row(values, mapping, ws, asset_fill, report):
+    from_register = "fingerprint" not in mapping.values()  # TUH's own file rather than our export
     raw = {key: values[i] if i < len(values) else None for i, key in mapping.items()}
     asset = _text(raw.get("asset_number"))
     row, short_term_from_status, hint, extra_notes = {}, False, None, []
@@ -473,10 +477,12 @@ def _parse_item_row(values, mapping, ws, asset_fill, report):
                 except ValueError:
                     row[key] = ""  # text in a date column, e.g. "Missing since ...": keep it as a note
                     extra_notes.append(f"{headers[key]}: {_text(value)}")
-                    report.warnings.append(f"'{ws.title}' {asset}: '{_text(value)[:40]}' isn't a date. Kept in the notes.")
+                    report.warnings.append(f"'{ws.title}' {asset}: '{_text(value)[:40]}' isn't a date. Kept in Comments.")
             elif key in YES_NO_KEYS:
                 row[key] = _yes_no(value)
             elif key == "status":
+                if from_register and _text(value):
+                    row["register_status"] = _text(value)
                 status, short_term_from_status, hint = _status(value)
                 if status:
                     row[key] = status
@@ -487,7 +493,7 @@ def _parse_item_row(values, mapping, ws, asset_fill, report):
                 row[key] = _identifier(value, "SN")
             elif key == "dml_number":
                 row[key] = _identifier(value, "DML")
-            elif key in ("hc21_number", "barcode", "max_weight", "size"):
+            elif key in ("hc21_number", "barcode"):
                 row[key] = _identifier(value)
             else:
                 row[key] = _text(value)
@@ -495,10 +501,11 @@ def _parse_item_row(values, mapping, ws, asset_fill, report):
             report.warnings.append(f"'{ws.title}' {asset}: {exc}, ignored.")
 
     if unknown := row.pop("_unknown_status", None):
-        extra_notes.append(f"Register status: {unknown}")
-        report.warnings.append(f"'{ws.title}' {asset}: status '{unknown}' not understood. Kept in the notes and flagged.")
+        if not from_register:
+            extra_notes.append(f"Status typed in Excel: {unknown}")  # no "Status on register" to keep it in
+        report.warnings.append(f"'{ws.title}' {asset}: status '{unknown}' not understood. Flagged for someone to check.")
     if extra_notes:
-        row["notes"] = "\n".join(filter(None, [row.get("notes", ""), *extra_notes]))
+        row["comments"] = "\n".join(filter(None, [row.get("comments", ""), *extra_notes]))
     if asset_fill in FLAG_FILLS and "flagged" not in mapping.values():
         row["flagged"] = "yes"
     if asset_fill in MISSING_FILLS and "status" not in row:
@@ -546,7 +553,8 @@ def _apply_item(row, sheet_title, default_pool, report):
     if not item:
         item = Equipment(asset_number=asset)
     item.category, item.pool = category, pool
-    for key in ("description", "size", "serial_number", "hc21_number", "dml_number", "max_weight", "barcode", "notes"):
+    for key in ("description", "size", "serial_number", "hc21_number", "dml_number", "max_weight", "barcode",
+                "comments", "register_status"):
         if key in row:
             setattr(item, key, row[key])
     for key, attr in [("purchase_date", "purchase_date"), ("last_service", "last_service_date")]:
@@ -577,6 +585,8 @@ def _apply_item(row, sheet_title, default_pool, report):
             due_at=_local_dt(row["due"]) if row.get("due") else None,
             short_term_loan=row.get("short_term") == "yes",
         )
+        if not staff and row.get("issued_by"):
+            Loan.objects.filter(pk=item.open_loan.pk).update(issued_by_name=row["issued_by"])
         report.loans_opened += 1
         if not row.get("mrn"):
             report.loans_without_patient += 1
@@ -593,7 +603,9 @@ def _apply_item(row, sheet_title, default_pool, report):
         if "short_term" in row:
             loan.short_term_loan = row["short_term"] == "yes"
         if staff:
-            loan.issued_by = staff
+            loan.issued_by, loan.issued_by_name = staff, ""
+        elif "issued_by" in row:
+            loan.issued_by_name = row["issued_by"]
         loan.save()
     elif wants_loan is False and loan:
         offer = services.return_item(item, source=LocationLog.Source.SPREADSHEET)
@@ -627,13 +639,15 @@ def _match_staff(text, asset, report):
     for staff in Staff.objects.filter(is_active=True):
         if text.lower() in {staff.username.lower(), str(staff).lower(), (staff.staff_number or "").lower()}:
             return staff
-    report.warnings.append(f"{asset}: Therapist '{text}' doesn't match a staff member, so the loan needs an owner.")
+    report.warnings.append(f"{asset}: Therapist '{text}' doesn't match a staff account. Kept as written; "
+                           "the loan needs an owner until someone claims it.")
     return None
 
 
 def _check_duplicates(rows, report):
     """Identifiers that should be unique but appear on more than one row (e.g. two chairs, one HC21 No.)."""
-    for key, label in [("hc21_number", "HC21 No."), ("dml_number", "DML No."), ("serial_number", "serial number")]:
+    for key, label in [("barcode", "barcode"), ("hc21_number", "HC21 No."), ("dml_number", "DML No."),
+                       ("serial_number", "serial number")]:
         seen = defaultdict(list)
         for row in rows:
             if row.get(key):
@@ -729,6 +743,10 @@ def import_workbook(file, *, dry_run=True, default_pool=Pool.DEFAULT_NAME):
                 all_rows.append(dict(row))
                 _apply_item(row, ws.title, default_pool, report)
         _check_duplicates(all_rows, report)
+        no_barcode = Equipment.objects.filter(asset_number__in=[r["asset_number"] for r in all_rows], barcode="").count()
+        if no_barcode:
+            report.warnings.append(f"{no_barcode} item(s) have no barcode. Add one before printing labels "
+                                   "(Equipment list, filter 'Has barcode: No').")
         if report.loans_without_patient:
             report.warnings.append(
                 f"{report.loans_without_patient} item(s) are out on a ward with no patient or therapist recorded. "

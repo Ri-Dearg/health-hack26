@@ -11,6 +11,7 @@ from django.template.response import TemplateResponse
 from django.urls import path
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.text import Truncator
 
 from . import services, spreadsheet, synergy
 from .models import Category, Equipment, Loan, LocationLog, Patient, Pool, Tag, TagEvent, WaitlistEntry
@@ -79,22 +80,73 @@ class TrackerImportForm(forms.Form):
     )
 
 
+class EquipmentForm(forms.ModelForm):
+    class Meta:
+        model = Equipment
+        fields = "__all__"
+
+    def clean_barcode(self):
+        barcode = (self.cleaned_data.get("barcode") or "").strip()
+        if not barcode and not self.instance.pk:
+            raise forms.ValidationError("A barcode is required for new items.")
+        if barcode and Equipment.objects.filter(barcode=barcode).exclude(pk=self.instance.pk).exists():
+            raise forms.ValidationError("Another item already has this barcode.")
+        return barcode
+
+
+class HasBarcodeFilter(admin.SimpleListFilter):
+    title = "has barcode"
+    parameter_name = "has_barcode"
+
+    def lookups(self, request, model_admin):
+        return [("yes", "Yes"), ("no", "No")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.exclude(barcode="")
+        if self.value() == "no":
+            return queryset.filter(barcode="")
+        return queryset
+
+
 @admin.register(Equipment)
 class EquipmentAdmin(admin.ModelAdmin):
-    list_display = ("asset_number", "category", "description", "status_display", "location", "location_updated_at",
-                    "pool", "flag")
-    list_filter = ("status", "flagged", "category", "pool", "on_assettrak")
-    search_fields = ("asset_number", "barcode", "serial_number", "hc21_number", "dml_number", "description", "tags__uid")
-    readonly_fields = ("location_updated_at",)
+    form = EquipmentForm
+    # The register's columns, in its order, so the list reads like the spreadsheet.
+    list_display = ("asset_number", "assettrak", "category", "description", "size", "serial_number", "hc21_number",
+                    "dml_number", "barcode", "max_weight", "location", "location_updated_at", "status_display",
+                    "short_comments", "cover", "flag")
+    list_filter = ("status", "flagged", HasBarcodeFilter, "category", "pool", "on_assettrak", "replacement_cover")
+    search_fields = ("asset_number", "barcode", "serial_number", "hc21_number", "dml_number", "description",
+                     "comments", "tags__uid")
+    readonly_fields = ("location_updated_at", "register_status")
     inlines = [TagInline, LoanInline, LocationLogInline]
     actions = ["return_to_store", "mark_awaiting_repair", "mark_missing"]
     fieldsets = (
-        (None, {"fields": ("asset_number", "category", "description", "pool", "status", "flagged")}),
-        ("Fit", {"fields": ("size", "max_weight", "replacement_cover")}),
-        ("Where", {"fields": ("location", "location_updated_at")}),
-        ("Identifiers", {"fields": ("barcode", "serial_number", "hc21_number", "dml_number", "on_assettrak")}),
-        ("Service", {"fields": ("purchase_date", "last_service_date", "notes")}),
+        ("As on the register", {"fields": (
+            "on_assettrak", "asset_number", "description", "size", "serial_number", "hc21_number", "dml_number",
+            "barcode", "max_weight", "location", "location_updated_at", "status", "register_status", "comments",
+            "last_service_date", "purchase_date", "replacement_cover",
+        ), "description": "Therapist and MRN are on the loan below. Patient names are never stored."}),
+        ("Added by the app", {"fields": ("category", "pool", "flagged")}),
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if not obj.barcode:
+            self.message_user(request, f"{obj.asset_number} still has no barcode.", messages.WARNING)
+
+    @admin.display(description="AssetTrak", ordering="on_assettrak")
+    def assettrak(self, obj):
+        return {True: "AT+", False: "AT-"}.get(obj.on_assettrak, "")
+
+    @admin.display(description="Comments")
+    def short_comments(self, obj):
+        return Truncator(obj.comments).chars(40)
+
+    @admin.display(description="Replacement cover", ordering="replacement_cover")
+    def cover(self, obj):
+        return {True: "Yes", False: "No"}.get(obj.replacement_cover, "")
 
     @admin.display(description="Status", ordering="status")
     def status_display(self, obj):
@@ -234,7 +286,9 @@ class LoanAdmin(admin.ModelAdmin):
 
     @admin.display(description="Issued by")
     def issued_by_display(self, obj):
-        return obj.issued_by or "⚠️ Needs an owner"
+        if obj.issued_by:
+            return obj.issued_by
+        return f"⚠️ {obj.issued_by_name} (no staff account)" if obj.issued_by_name else "⚠️ Needs an owner"
 
     @admin.display(description="State")
     def state(self, obj):
