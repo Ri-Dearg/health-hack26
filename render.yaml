@@ -1,4 +1,5 @@
-# Render Blueprint: New > Blueprint in the Render dashboard, then point it at this repo.
+# Render Blueprint. In the Render dashboard: New > Blueprint, pick this repo and the branch to deploy.
+# Render asks for the "sync: false" values once, when the Blueprint is created.
 services:
   - type: web
     name: ot-equipment
@@ -15,7 +16,15 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: WEB_CONCURRENCY
-        value: 2
+        value: "2"
+      - key: DJANGO_SUPERUSER_USERNAME  # the admin login, created by build.sh on the first deploy
+        sync: false
+      - key: DJANGO_SUPERUSER_PASSWORD
+        sync: false
+      - key: DEVICE_TOKEN               # readers posting to /api/tag-read/ must send it as X-Device-Token
+        generateValue: true
+      - key: SEED_DEMO                  # 1 = load invented demo data into an empty database; 0 = start empty
+        value: "1"
 
 databases:
   - name: ot-equipment-db
