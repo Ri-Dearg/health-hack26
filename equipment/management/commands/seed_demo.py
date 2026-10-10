@@ -1,6 +1,9 @@
 """Invented demo data only. No real patients or staff."""
 
+import os
 from datetime import timedelta
+
+from django.conf import settings
 
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
@@ -45,10 +48,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true", help="Delete existing equipment data first.")
+        parser.add_argument("--if-empty", action="store_true",
+                            help="Do nothing if equipment already exists. Safe to run on every deploy.")
 
     @transaction.atomic
-    def handle(self, *args, reset=False, **options):
+    def handle(self, *args, reset=False, if_empty=False, **options):
         if Equipment.objects.exists() and not reset:
+            if if_empty:
+                self.stdout.write("Equipment already exists: demo data not loaded.")
+                return
             raise CommandError("Equipment already exists. Use --reset to wipe and reload the demo data.")
         if reset:
             for model in (LocationLog, WaitlistEntry, Tag, Loan, Equipment, Patient, Category):
@@ -57,6 +65,9 @@ class Command(BaseCommand):
         call_command("setup_roles")
         ot_staff = Group.objects.get(name="OT staff")
 
+        # The repo is public, so the known demo password only applies locally (DEBUG).
+        # Elsewhere demo staff can't log in unless DEMO_STAFF_PASSWORD is set.
+        password = os.environ.get("DEMO_STAFF_PASSWORD") or ("demo-pass-123" if settings.DEBUG else "")
         staff = []
         for username, first, last, number in [
             ("aoife", "Aoife", "Byrne", "OT1001"),
@@ -69,7 +80,10 @@ class Command(BaseCommand):
                           "email": f"{username}@example.com", "is_staff": True},
             )
             if created:
-                person.set_password("demo-pass-123")
+                if password:
+                    person.set_password(password)
+                else:
+                    person.set_unusable_password()
                 person.set_card_id(f"CARD-{number}")
                 person.save()
             person.groups.add(ot_staff)
@@ -120,5 +134,7 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(
             f"Loaded {len(items)} items in {len(CATEGORIES)} categories, 3 loans, 3 waitlist entries. "
-            "Demo staff: aoife / ciaran / niamh (password demo-pass-123)."
+            "Demo staff: aoife / ciaran / niamh "
+            + ("(password demo-pass-123)." if password == "demo-pass-123" else
+               "(password from DEMO_STAFF_PASSWORD)." if password else "(can't log in: DEMO_STAFF_PASSWORD not set).")
         ))
