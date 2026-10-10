@@ -13,6 +13,10 @@ from . import services
 from .events import apply_action, handle_tag_read
 from .location import RETURN_POINT, record_location
 from .models import Equipment, LocationLog, TagEvent
+from .notify import notify_loan
+
+# 시연용 환자 목록. 화면의 선택지일 뿐이고, 서버는 어떤 MRN이든 기존처럼 받는다.
+DEMO_MRNS = [str(n) for n in range(1001, 1007)]
 
 
 @csrf_exempt
@@ -62,6 +66,9 @@ def item_page(request, code):
             record_location(item, location=RETURN_POINT, source=LocationLog.Source.PHONE, staff=request.user)
             next_entry = services.next_on_waitlist(item.category)
         item.refresh_from_db()
+        if result.outcome == TagEvent.Outcome.LOAN:
+            notify_loan(item.open_loan)
     return render(request, "equipment/item.html", {
         "item": item, "loan": item.open_loan, "result": result, "next_entry": next_entry,
+        "demo_mrns": DEMO_MRNS,
     })

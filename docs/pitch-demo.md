@@ -49,6 +49,8 @@
 | `DEVICE_TOKEN` | 비어 있음 | 설정하면 `/api/tag-read/`, `/api/bridge-read/`가 `X-Device-Token` 요구 |
 | `BT_DISCONNECT_SECONDS` | 10 | 마지막 브리지 신호가 이보다 오래되면 Disconnected |
 | `BT_HEARTBEAT_SECONDS` | 3 | 시뮬레이터 하트비트 간격 |
+| `DEMO_NOTIFY_MRN` | 1003 | 이 MRN 환자에게 대여되면 알림 메일 발송 (아이템 페이지의 MRN 선택지는 1001~1006) |
+| `DEMO_NOTIFY_EMAIL` | 비어 있음 | 알림 메일 수신 주소. 비어 있으면 안 보냄. **Render 무료 티어는 SMTP가 막혀 있어 발송되지 않는다** (대여 자체는 성공) |
 
 ## 사람이 해야 할 일 (체크리스트)
 

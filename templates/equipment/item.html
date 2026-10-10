@@ -27,7 +27,7 @@
           color: var(--ink); text-decoration: none; font-weight: 700; }
   form { margin-top: 1.2rem; }
   label { display: block; margin: .6rem 0 .25rem; font-weight: 600; }
-  input { font: inherit; font-size: 1.4rem; width: 100%; padding: .6rem .7rem; border: 2px solid var(--line); border-radius: .5rem; }
+  input, select { font: inherit; font-size: 1.4rem; width: 100%; background: #fff; color: var(--ink); padding: .6rem .7rem; border: 2px solid var(--line); border-radius: .5rem; }
   button { font: inherit; font-size: 1.35rem; font-weight: 800; width: 100%; padding: 1.1rem; margin-top: 1rem; border-radius: .7rem;
            border: 0; background: var(--blue); color: #fff; }
   button.return { background: var(--green); }
@@ -87,7 +87,10 @@
         <input type="hidden" name="expected_status" value="{{ item.status }}">
         <input type="hidden" name="action" value="loan">
         <label for="mrn">Patient MRN (no names)</label>
-        <input id="mrn" name="mrn" inputmode="numeric" autocomplete="off" required>
+        <select id="mrn" name="mrn" required>
+          <option value="" disabled selected>Select MRN</option>
+          {% for m in demo_mrns %}<option value="{{ m }}">{{ m }}</option>{% endfor %}
+        </select>
         <details>
           <summary>Ward and bed (optional)</summary>
           <label for="ward">Ward</label><input id="ward" name="ward">

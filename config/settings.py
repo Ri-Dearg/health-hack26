@@ -149,6 +149,10 @@ else:
     EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "ot-equipment@localhost")
 
+# 시연: 이 MRN 환자에게 대여되면 이 주소로 알림 메일을 보낸다 (equipment/notify.py). 주소가 비어 있으면 보내지 않는다.
+DEMO_NOTIFY_MRN = os.environ.get("DEMO_NOTIFY_MRN", "1003")
+DEMO_NOTIFY_EMAIL = os.environ.get("DEMO_NOTIFY_EMAIL", "")
+
 
 if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")

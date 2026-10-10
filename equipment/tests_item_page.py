@@ -23,7 +23,7 @@ class ItemPageTests(TestCase):
         r = self.client.get("/item/D27/")
         self.assertContains(r, 'value="loan"', count=1)
         self.assertNotContains(r, 'value="return"')
-        self.assertContains(r, 'inputmode="numeric"')
+        self.assertContains(r, '<select id="mrn" name="mrn" required>')
 
     def test_on_loan_shows_only_return(self):
         services.issue_item(self.item, mrn="4100273")
