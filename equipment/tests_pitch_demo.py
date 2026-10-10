@@ -105,7 +105,7 @@ class RehearsalTests(TestCase):
             self.client.post("/item/D27/", {"action": "return", "expected_status": "on_loan"})
             feed = self.client.get("/dashboard/feed/").json()
             d27 = next(i for i in feed["items"] if i["asset_number"] == "D27")
-            results.append((d27["status"], feed["next_patient"]["mrn"], feed["next_patient"]["priority"],
-                            Loan.objects.filter(equipment__asset_number="D27").count()))
+            results.append((d27["status"], d27["location"], feed["next_patient"]["mrn"],
+                            feed["next_patient"]["priority"], Loan.objects.filter(equipment__asset_number="D27").count()))
         self.assertEqual(len(set(results)), 1, results)
-        self.assertEqual(results[0][0], "available")
+        self.assertEqual(results[0], ("available", "Return Point", pitch_demo.WAITLIST[0][0], "Discharge-critical", 1))
